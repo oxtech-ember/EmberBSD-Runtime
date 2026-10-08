@@ -34,19 +34,17 @@ central project and the entry point for the ecosystem.
 - [EmberBSD-SDK](https://github.com/oxtech-ember/EmberBSD-SDK) — application interfaces, package contracts and development tools; design stage.
 - [EmberBSD-Ports](https://github.com/oxtech-ember/EmberBSD-Ports) — third-party recipes, patches and native dependencies.
 - [EmberBSD-Examples](https://github.com/oxtech-ember/EmberBSD-Examples) — standalone applications and reproducible demonstrations.
-- [Ember-Agent-Skills](https://github.com/oxtech-ember/Ember-Agent-Skills) — instructions for AI coding assistants and tested contributions.
+- [Ember-Agent-Skills](https://github.com/oxtech-ember/Ember-Agent-Skills) — portable developer skills for AI coding assistants and tested contributions.
 
 ## Connect developer skills
 
-Install the developer instructions in a Codex CLI with plugin support:
+[Ember Agent Skills](https://github.com/oxtech-ember/Ember-Agent-Skills) provides
+portable Agent Skills packaged with Agent Plugins. Load the package or the
+complete skill directory using your development environment's supported
+mechanism. Follow the [installation and validation guide](https://github.com/oxtech-ember/Ember-Agent-Skills#use-in-your-development-environment)
+for the shared format and the separately tested Codex adapter.
 
-```sh
-codex plugin marketplace add oxtech-ember/Ember-Agent-Skills --ref main
-codex plugin add emberbsd-development@ember-agent-skills
-```
-
-Start a new conversation and ask `$emberbsd-repository-guide` to identify the
-available interfaces and checks for your task. This installs assistant skills,
-not a runtime on the device. See the
-[installation, verification and update guide](https://github.com/oxtech-ember/Ember-Agent-Skills#install-in-codex)
-for the complete procedure and other assistant environments.
+Ask the `emberbsd-repository-guide` skill to identify the available interfaces
+and checks for your task.
+The package supplies assistant instructions; it does not install a device runtime
+or create missing SDK interfaces.
