@@ -22,8 +22,8 @@ validated Wasm environment. There is no Runtime installation command yet.
 Use the existing OS, Ports and Examples instructions for current workflows.
 
 The next implementation needs a defined SDK contract and a reproducible example
-that exercises the same interface on its declared targets. Until then, repository
-names and architectural plans must not be treated as available APIs.
+that exercises the same interface on its declared targets. Until then, use
+the documented implemented interfaces and identify architectural plans as planned APIs.
 
 ## Related EmberBSD projects
 
