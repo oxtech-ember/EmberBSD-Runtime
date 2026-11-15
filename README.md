@@ -3,6 +3,9 @@
 Application runtime and shared device operations for
 [EmberBSD](https://github.com/oxtech-ember/EmberBSD) — Unix for intelligent devices.
 
+Read the [EmberBSD Developer Guide](https://github.com/oxtech-ember/EmberBSD-Docs/blob/main/modules/runtime.md)
+for the proposed Runtime and its boundaries with the implemented OS and SDK.
+
 ## Purpose
 
 Runtime is the planned device-side application environment above EmberBSD.
