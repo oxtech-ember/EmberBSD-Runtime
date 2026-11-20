@@ -19,14 +19,18 @@ hardware support; Ports owns adaptations to external dependencies.
 
 ## Current state
 
-**Design stage.** This repository currently documents its purpose and boundaries.
-It does not provide an executable runtime, installer, stable Device API or
+**Design stage.** Most of this repository still documents its purpose and
+boundaries. It does not provide an installer, stable general Device API or
 validated Wasm environment. There is no Runtime installation command yet.
-Use the existing OS, Ports and Examples instructions for current workflows.
 
-The next implementation needs a defined SDK contract and a reproducible example
-that exercises the same interface on its declared targets. Until then, use
-the documented implemented interfaces and identify architectural plans as planned APIs.
+The new `qml/` directory is an opt-in, experimental C renderer for the flat
+Rectangle/Text scene ABI produced by the EmberBSD SDK QML compiler. It uses a
+caller-owned RGB565 scanline, supports mutable integer bindings and a NetBSD
+wsdisplay dumb-framebuffer backend, and does not depend on Qt or LVGL. This
+small renderer is a concrete implementation under development; it does not
+make the broader Runtime APIs stable or imply general QML compatibility.
+See [`qml/README.md`](qml/README.md) for its ABI, supported scene subset,
+build instructions and checks.
 
 ## Related EmberBSD projects
 
