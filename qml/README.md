@@ -92,6 +92,11 @@ string slots. Nodes and strings are bounded to 256 each. Each mutable slot
 holds up to 255 printable ASCII bytes. Destroy the instance with
 `eqml_ui_destroy()`. It owns neither the input device nor the display.
 
+An application can register a callback with `eqml_ui_set_signal_handler()`
+to receive named, parameterless signals from QML. The callback runs on the
+event-loop thread. It can queue work for that loop and its context must
+remain valid while registered. The logging callback handles diagnostic text.
+
 An `EQML_NODE_ITEM` groups children and contributes geometry without painting.
 Opacity multiplies through the parent chain. A fully transparent MouseArea
 can still receive input. Explicit visibility is per instance.
@@ -154,8 +159,13 @@ For a retained framebuffer at a fixed viewport, call `eqml_ui_present()`
 with a synchronous presentation callback. The first call covers the whole
 scene. Later calls cover the accumulated union of the old and new painted
 bounds, clipped to the scene. The union includes descendant text which can
-extend beyond its parent. Changes to a string invalidate the whole scene.
-The UI stores one pending rectangle and reuses its existing flat draw list.
+extend beyond its parent. Changing a string damages the old and new visible
+glyph bounds of every text node that shares its slot; transparent or hidden
+text contributes no bounds. Layout changes caused by the new text also damage
+the old and new bounds of dependent items. A failed layout or text-change
+handler invalidates the full scene, and nested text-change handlers request a
+full redraw because they may update unrelated state. The UI stores one pending
+rectangle and reuses its existing flat draw list.
 
 The callback can pass the borrowed frame and region to
 `eqml_wsdisplay_present_region_at()` with the same viewport offset and

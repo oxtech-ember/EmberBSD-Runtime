@@ -114,6 +114,11 @@ const char *eqml_ui_string(const struct eqml_ui *, size_t);
 int eqml_string_copy(char dest[EQML_STRING_CAP], const char *src);
 int eqml_ui_set(struct eqml_ui *, size_t, const char *);
 void eqml_ui_log(struct eqml_ui *, const char *);
+/* Compiled QML signals are delivered synchronously to the application.
+ * Pass NULL to disconnect. The UI borrows the context until disconnected. */
+void eqml_ui_set_signal_handler(struct eqml_ui *, void (*)(void *, const char *),
+    void *);
+void eqml_ui_emit(struct eqml_ui *, const char *);
 struct eqml_point eqml_ui_map(const struct eqml_ui *, size_t, size_t,
     int32_t, int32_t);
 

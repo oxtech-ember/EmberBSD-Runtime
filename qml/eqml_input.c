@@ -15,7 +15,9 @@
 struct placement {
 	int32_t x, y, width, height;
 	int32_t local_x, local_y;
+	int32_t old_text_width;
 	uint8_t transparency, hidden, visible, visiting, ready;
+	uint8_t text_changed;
 };
 
 struct animation {
@@ -35,6 +37,8 @@ struct eqml_ui {
 	char (*strings)[EQML_STRING_CAP];
 	void (*logger)(void *, const char *);
 	void *cookie;
+	void (*signal_handler)(void *, const char *);
+	void *signal_cookie;
 	int grab, hover, last_click, inside, held, hold_done, doubled, dragging, moved;
 	uint32_t button, modifiers, last_button;
 	uint64_t down_time, last_time;
@@ -179,10 +183,27 @@ include_damage(struct eqml_ui *ui, int32_t x, int32_t y, int32_t width, int32_t 
 }
 
 static void
+full_damage(struct eqml_ui *ui)
+{
+	ui->damage = (struct eqml_region){ 0, 0, ui->frame.width,
+		ui->frame.height };
+}
+
+static void
+clear_text_changes(struct eqml_ui *ui)
+{
+	size_t i;
+
+	for (i = 0; i < ui->program->node_count; i++)
+		ui->places[i].text_changed = 0;
+}
+
+static void
 track_placement(struct eqml_ui *ui, const struct eqml_item *old,
     const struct eqml_node *n, const struct placement *p)
 {
 	int32_t x, y, width, height;
+	int text_changed = n->kind == EQML_NODE_TEXT && p->text_changed;
 
 	if (ui->damage.width == ui->frame.width && ui->damage.height == ui->frame.height)
 		return;
@@ -196,13 +217,19 @@ track_placement(struct eqml_ui *ui, const struct eqml_item *old,
 		x = old->data.rect.x;
 		y = old->data.rect.y;
 	}
-	if (x == p->x && y == p->y && old->transparency == p->transparency)
+	if (!text_changed && x == p->x && y == p->y &&
+	    old->transparency == p->transparency)
 		return;
-	/* Compiled sizes and colors are immutable. Changing a string marks
-	 * the full frame before overwriting its old text. */
 	if (n->kind == EQML_NODE_TEXT) {
-		width = label_width(n, label(ui, n));
+		width = text_changed ? p->old_text_width :
+		    label_width(n, label(ui, n));
 		height = n->pixel_size;
+		if (old->transparency != 255)
+			include_damage(ui, x, y, width, height);
+		if (p->transparency != 255)
+			include_damage(ui, p->x, p->y,
+			    label_width(n, label(ui, n)), height);
+		return;
 	} else {
 		width = n->width;
 		height = n->height;
@@ -231,8 +258,11 @@ eqml_ui_frame(struct eqml_ui *ui)
 		const struct placement *p = &ui->places[i];
 		struct eqml_item *item;
 
-		if (place(ui, i) == -1)
+		if (place(ui, i) == -1) {
+			full_damage(ui);
+			clear_text_changes(ui);
 			return NULL;
+		}
 		if (n->kind == EQML_NODE_AREA || n->kind == EQML_NODE_ITEM)
 			continue;
 		item = &ui->items[count];
@@ -257,6 +287,7 @@ eqml_ui_frame(struct eqml_ui *ui)
 		}
 	}
 	ui->frame.item_count = count;
+	clear_text_changes(ui);
 	return &ui->frame;
 }
 
@@ -557,6 +588,7 @@ int
 eqml_ui_set(struct eqml_ui *ui, size_t slot, const char *value)
 {
 	size_t i;
+	int nested;
 	if (ui == NULL || slot >= ui->program->string_count || value == NULL)
 		return invalid();
 	if (copy_text(NULL, value) == -1)
@@ -567,11 +599,36 @@ eqml_ui_set(struct eqml_ui *ui, size_t slot, const char *value)
 		errno = ELOOP;
 		return -1;
 	}
-	if (copy_text(ui->strings[slot], value) == -1)
+	nested = ui->notifying != 0;
+	if (eqml_ui_frame(ui) == NULL) {
+		full_damage(ui);
+		clear_text_changes(ui);
 		return -1;
-	ui->damage = (struct eqml_region){ 0, 0, ui->frame.width, ui->frame.height };
-	if (eqml_ui_frame(ui) == NULL)
+	}
+	if (nested) {
+		/* Handler code may mutate arbitrary state beyond the current text. */
+		full_damage(ui);
+	} else {
+		for (i = 0; i < ui->program->node_count; ++i) {
+			const struct eqml_node *n = &ui->program->nodes[i];
+			if (n->kind == EQML_NODE_TEXT && n->text_slot == (int)slot) {
+				ui->places[i].old_text_width =
+				    label_width(n, label(ui, n));
+				ui->places[i].text_changed = 1;
+			}
+		}
+	}
+	if (copy_text(ui->strings[slot], value) == -1) {
+		clear_text_changes(ui);
 		return -1;
+	}
+	if (eqml_ui_frame(ui) == NULL) {
+		full_damage(ui);
+		clear_text_changes(ui);
+		return -1;
+	}
+	if (nested)
+		full_damage(ui);
 	if (ui->program->handler == NULL)
 		return 0;
 	for (i = 0; i < ui->program->node_count; ++i) {
@@ -581,8 +638,10 @@ eqml_ui_set(struct eqml_ui *ui, size_t slot, const char *value)
 			ui->notifying++;
 			status = ui->program->handler(ui, i, EQML_TEXT_CHANGED, NULL);
 			ui->notifying--;
-			if (status == -1)
+			if (status == -1) {
+				full_damage(ui);
 				return -1;
+			}
 		}
 	}
 	return 0;
@@ -593,6 +652,23 @@ eqml_ui_log(struct eqml_ui *ui, const char *value)
 {
 	if (ui != NULL && ui->logger != NULL && value != NULL)
 		ui->logger(ui->cookie, value);
+}
+
+void
+eqml_ui_set_signal_handler(struct eqml_ui *ui,
+    void (*handler)(void *, const char *), void *cookie)
+{
+	if (ui != NULL) {
+		ui->signal_handler = handler;
+		ui->signal_cookie = cookie;
+	}
+}
+
+void
+eqml_ui_emit(struct eqml_ui *ui, const char *name)
+{
+	if (ui != NULL && ui->signal_handler != NULL && name != NULL)
+		ui->signal_handler(ui->signal_cookie, name);
 }
 
 struct eqml_point
