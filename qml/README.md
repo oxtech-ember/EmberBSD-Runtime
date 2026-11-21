@@ -1,6 +1,6 @@
 # EmberBSD QML scene renderer
 
-This directory implements `EQML_SCENE_ABI 3`, the small target-side runtime
+This directory implements `EQML_SCENE_ABI 4`, the small target-side runtime
 contract for compiled static scenes and opt-in interactive scenes. The SDK compiler owns QML
 parsing and emits a C translation unit defining `const struct eqml_scene
 eqml_app` (or another selected public symbol). Runtime does not parse QML or
@@ -81,6 +81,14 @@ supported QML handlers. Link `eqml_input.c` when the scene has a `program`.
 string slots. Nodes and strings are bounded to 256 each. Each mutable slot
 holds up to 255 printable ASCII bytes. Destroy the instance with
 `eqml_ui_destroy()`. It owns neither the input device nor the display.
+
+An `EQML_NODE_ITEM` groups children and contributes geometry without painting.
+Opacity multiplies through the parent chain. A fully transparent MouseArea
+can still receive input. Explicit visibility is per instance.
+`eqml_ui_visible()` reads effective visibility, including ancestors.
+`eqml_ui_set_visible()` changes the local property. Hiding a subtree repaints
+its old bounds and releases its pointer grab. Children keep their own visibility
+when an ancestor is shown again.
 
 Feed single-contact press, move, release and cancellation to `eqml_ui_pointer()`
 in viewport pixels. Use a single monotonic clock in milliseconds for that

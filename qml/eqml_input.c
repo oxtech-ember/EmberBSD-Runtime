@@ -15,7 +15,7 @@
 struct placement {
 	int32_t x, y, width, height;
 	int32_t local_x, local_y;
-	uint8_t transparency, visiting, ready;
+	uint8_t transparency, hidden, visible, visiting, ready;
 };
 
 struct animation {
@@ -99,12 +99,14 @@ place(struct eqml_ui *ui, size_t index)
 	const struct placement *parent = NULL;
 	int64_t x = p->local_x, y = p->local_y;
 	unsigned int opacity = 255;
+	unsigned int transparency = node->transparency;
 
 	if (p->ready)
 		return 0;
 	if (p->visiting)
 		return invalid();
 	p->visiting = 1;
+	p->visible = !p->hidden;
 	p->width = node->width;
 	p->height = node->height;
 	if (node->kind == EQML_NODE_TEXT) {
@@ -123,6 +125,7 @@ place(struct eqml_ui *ui, size_t index)
 			x += (parent->width - p->width) / 2;
 		if (node->anchors & EQML_VCENTER)
 			y += (parent->height - p->height) / 2;
+		p->visible = p->visible && parent->visible;
 		opacity = 255U - parent->transparency;
 	}
 	if (node->bottom_edge != EQML_EDGE_NONE) {
@@ -135,8 +138,9 @@ place(struct eqml_ui *ui, size_t index)
 			y += target->height;
 	}
 	if (node->opacity_area >= 0 && ui->grab == node->opacity_area && ui->inside)
-		opacity = (opacity * (255U - node->pressed_transparency) + 127U) / 255U;
-	p->transparency = (uint8_t)(255U - opacity);
+		transparency = node->pressed_transparency;
+	opacity = (opacity * (255U - transparency) + 127U) / 255U;
+	p->transparency = p->visible ? (uint8_t)(255U - opacity) : 255;
 	p->x = narrow(x);
 	p->y = narrow(y);
 	p->ready = 1;
@@ -226,7 +230,7 @@ eqml_ui_frame(struct eqml_ui *ui)
 
 		if (place(ui, i) == -1)
 			return NULL;
-		if (n->kind == EQML_NODE_AREA)
+		if (n->kind == EQML_NODE_AREA || n->kind == EQML_NODE_ITEM)
 			continue;
 		item = &ui->items[count];
 		if (count < ui->frame.item_count)
@@ -334,7 +338,7 @@ eqml_ui_create(const struct eqml_scene *scene,
 	for (i = 0; i < pg->node_count; i++) {
 		const struct eqml_node *n = &pg->nodes[i];
 		if ((i == 0 ? n->parent != -1 : n->parent < 0 || (size_t)n->parent >= i) ||
-		    n->kind < EQML_NODE_RECT || n->kind > EQML_NODE_AREA ||
+		    n->kind < EQML_NODE_RECT || n->kind > EQML_NODE_ITEM ||
 		    (n->anchors & ~(EQML_HCENTER | EQML_VCENTER)) ||
 		    n->bottom_edge < EQML_EDGE_NONE || n->bottom_edge > EQML_EDGE_BOTTOM ||
 		    (n->bottom_edge && !valid_index(ui, n->bottom_target)) ||
@@ -348,6 +352,7 @@ eqml_ui_create(const struct eqml_scene *scene,
 			errno = EINVAL;
 			goto fail;
 		}
+		ui->places[i].hidden = n->hidden;
 		ui->places[i].local_x = n->x;
 		ui->places[i].local_y = n->y;
 		if (n->kind == EQML_NODE_TEXT && n->text != NULL &&
@@ -480,6 +485,44 @@ eqml_ui_set_coordinate(struct eqml_ui *ui, size_t node, enum eqml_axis axis,
 }
 
 int
+eqml_ui_visible(const struct eqml_ui *ui, size_t node)
+{
+	if (ui == NULL || node >= ui->program->node_count) {
+		errno = EINVAL;
+		return 0;
+	}
+	return ui->places[node].visible;
+}
+
+int
+eqml_ui_set_visible(struct eqml_ui *ui, size_t node, int visible)
+{
+	if (ui == NULL || node >= ui->program->node_count)
+		return invalid();
+	if (ui->places[node].hidden == !visible)
+		return 0;
+	ui->places[node].hidden = !visible;
+	if (eqml_ui_frame(ui) == NULL)
+		return -1;
+	/* A touch-only area loses its implicit hover along with visibility. */
+	if (ui->hover >= 0 && !ui->places[ui->hover].visible &&
+	    !ui->program->nodes[ui->hover].hover)
+		ui->hover = -1;
+	ui->recheck_pointer = ui->pointer_present || ui->hover >= 0;
+	if (ui->last_click >= 0 && !ui->places[ui->last_click].visible)
+		ui->last_click = -1;
+	if (ui->grab >= 0 && !ui->places[ui->grab].visible) {
+		ui->grab = -1;
+		ui->button = 0;
+		ui->inside = ui->held = 0;
+		/* A visible sibling may bind its opacity to the old grab. */
+		if (eqml_ui_frame(ui) == NULL)
+			return -1;
+	}
+	return 0;
+}
+
+int
 eqml_ui_pressed(const struct eqml_ui *ui, size_t node)
 {
 	return ui != NULL && ui->grab >= 0 && (size_t)ui->grab == node;
@@ -569,7 +612,8 @@ hit(const struct eqml_ui *ui, uint32_t button)
 	size_t i = ui->program->node_count;
 	while (i != 0) {
 		const struct eqml_node *n = &ui->program->nodes[--i];
-		if (n->kind == EQML_NODE_AREA && (button ? (n->buttons & button) != 0 : n->hover) &&
+		if (n->kind == EQML_NODE_AREA && ui->places[i].visible &&
+		    (button ? (n->buttons & button) != 0 : n->hover) &&
 		    contains(&ui->places[i], ui->pointer))
 			return (int)i;
 	}
@@ -582,7 +626,8 @@ emit(struct eqml_ui *ui, int node, enum eqml_signal sig, int click)
 	struct eqml_mouse m;
 	const struct placement *p;
 
-	if (node < 0 || ui->program->handler == NULL)
+	if (node < 0 || ui->program->handler == NULL ||
+	    (!ui->places[node].visible && sig != EQML_EXITED && sig != EQML_CLICKED))
 		return 0;
 	p = &ui->places[node];
 	m.x = narrow((int64_t)ui->pointer.x - p->x);
@@ -845,10 +890,11 @@ release(struct eqml_ui *ui, uint32_t button)
 	/* Qt Quick emits released for the second lift, but not clicked. */
 	if (emit(ui, target, EQML_RELEASED, click) == -1)
 		return -1;
+	/* The accepted release owns its click, even if onReleased hides the area. */
 	if (click && !ui->held && !ui->doubled) {
 		if (emit(ui, target, EQML_CLICKED, 1) == -1)
 			return -1;
-		ui->last_click = target;
+		ui->last_click = ui->places[target].visible ? target : -1;
 		ui->last_button = button;
 		ui->last_point = ui->down;
 		ui->last_time = ui->down_time;

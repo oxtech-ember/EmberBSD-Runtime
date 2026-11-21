@@ -54,6 +54,56 @@ check(struct eqml_ui *ui, struct surface *s)
 	assert(memcmp(s->pixels, expected.pixels, sizeof(s->pixels)) == 0);
 }
 
+static void
+test_visibility(void)
+{
+	const struct eqml_node nodes[] = {
+		{ .kind = EQML_NODE_ITEM, .parent = -1, .width = WIDTH,
+		  .height = HEIGHT, .opacity_area = -1 },
+		{ .kind = EQML_NODE_RECT, .parent = 0, .x = 1, .y = 2,
+		  .width = 5, .height = 4, .color = 0xf800, .opacity_area = -1 },
+		{ .kind = EQML_NODE_ITEM, .parent = 0, .x = 3, .y = 2,
+		  .transparency = 128, .opacity_area = -1 },
+		{ .kind = EQML_NODE_RECT, .parent = 2, .width = 5, .height = 4,
+		  .color = 0x001f, .opacity_area = -1, .hidden = 1 },
+		{ .kind = EQML_NODE_AREA, .parent = 2, .width = 5, .height = 4,
+		  .transparency = 255, .buttons = 1, .opacity_area = -1,
+		  .drag_target = -1 }
+	};
+	const struct eqml_program program = { nodes, 5, 0, NULL };
+	const struct eqml_scene scene = { .width = WIDTH, .height = HEIGHT,
+	    .program = &program };
+	struct eqml_ui *ui = eqml_ui_create(&scene, NULL, NULL);
+	struct surface s = { .fail_y = -1 };
+	unsigned int calls;
+
+	assert(ui != NULL);
+	check(ui, &s);
+	assert(eqml_ui_frame(ui)->item_count == 2);
+	assert(!eqml_ui_visible(ui, 3) && s.pixels[2][4] == 0xf800);
+	assert(eqml_ui_set_visible(ui, 3, 1) == 0);
+	check(ui, &s);
+	assert(s.region.x == 3 && s.region.y == 2 && s.region.width == 5 && s.rows == 4);
+	assert(eqml_ui_frame(ui)->items[1].transparency == 128);
+	assert(s.pixels[2][4] != 0xf800 && s.pixels[2][4] != 0x001f);
+	assert(eqml_ui_pointer(ui, EQML_DOWN, 4, 3, 1, 0, 0) == 1);
+	assert(eqml_ui_pressed(ui, 4));
+	assert(eqml_ui_set_visible(ui, 2, 0) == 0);
+	check(ui, &s);
+	assert(!eqml_ui_pressed(ui, 4) && !eqml_ui_visible(ui, 3));
+	assert(s.pixels[2][4] == 0xf800);
+	assert(eqml_ui_pointer(ui, EQML_UP, 4, 3, 1, 0, 1) >= 0);
+	assert(eqml_ui_pointer(ui, EQML_DOWN, 4, 3, 1, 0, 2) == 0);
+	assert(eqml_ui_set_visible(ui, 3, 0) == 0);
+	assert(eqml_ui_set_visible(ui, 2, 1) == 0);
+	calls = s.calls;
+	check(ui, &s);
+	assert(s.calls == calls && !eqml_ui_visible(ui, 3));
+	assert(eqml_ui_visible(ui, 4));
+	assert(eqml_ui_set_visible(ui, 5, 1) == -1 && errno == EINVAL);
+	eqml_ui_destroy(ui);
+}
+
 int
 main(void)
 {
@@ -75,6 +125,7 @@ main(void)
 	struct surface s = { .fail_y = -1 };
 	unsigned calls;
 
+	test_visibility();
 	assert(ui != NULL);
 	check(ui, &s);
 	assert(s.calls == 1 && s.region.width == WIDTH && s.rows == HEIGHT);

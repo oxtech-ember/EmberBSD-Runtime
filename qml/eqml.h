@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define EQML_SCENE_ABI 3
+#define EQML_SCENE_ABI 4
 
 enum {
 	EQML_HCENTER = 1,

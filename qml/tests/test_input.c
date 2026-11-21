@@ -23,6 +23,57 @@ record(struct eqml_ui *ui, size_t node, enum eqml_signal s, const struct eqml_mo
 	return 0;
 }
 
+static enum eqml_signal hide_on;
+static unsigned int clicks, hidden_exits;
+
+static int
+hide_parent(struct eqml_ui *ui, size_t node, enum eqml_signal signal,
+    const struct eqml_mouse *mouse)
+{
+	(void)node;
+	(void)mouse;
+	if (signal == EQML_CLICKED)
+		clicks++;
+	if (signal == EQML_EXITED)
+		hidden_exits++;
+	return signal == hide_on ? eqml_ui_set_visible(ui, 0, 0) : 0;
+}
+
+static void
+test_hide_during_click(void)
+{
+	struct eqml_node nodes[] = {
+		{ .kind = EQML_NODE_ITEM, .parent = -1, .opacity_area = -1 },
+		{ .kind = EQML_NODE_AREA, .parent = 0, .width = 10, .height = 10,
+		  .buttons = 1, .drag_target = -1, .opacity_area = -1 }
+	};
+	const struct eqml_program program = { nodes, 2, 0, hide_parent };
+	const struct eqml_scene scene = { .width = 10, .height = 10, .program = &program };
+	struct eqml_ui *ui = eqml_ui_create(&scene, NULL, NULL);
+
+	assert(ui != NULL);
+	hide_on = EQML_PRESSED;
+	assert(eqml_ui_pointer(ui, EQML_DOWN, 2, 2, 1, 0, 0) == 1);
+	assert(!eqml_ui_pressed(ui, 1));
+	assert(eqml_ui_pointer(ui, EQML_UP, 2, 2, 1, 0, 10) >= 0);
+	assert(clicks == 0 && hidden_exits == 0);
+	assert(eqml_ui_set_visible(ui, 0, 1) == 0);
+	hide_on = EQML_RELEASED;
+	assert(eqml_ui_pointer(ui, EQML_DOWN, 2, 2, 1, 0, 100) == 1);
+	assert(eqml_ui_pointer(ui, EQML_UP, 2, 2, 1, 0, 110) == 1);
+	assert(!eqml_ui_visible(ui, 1) && clicks == 1 && hidden_exits == 0);
+	eqml_ui_destroy(ui);
+
+	nodes[1].hover = 1;
+	ui = eqml_ui_create(&scene, NULL, NULL);
+	assert(ui != NULL);
+	hide_on = EQML_ENTERED;
+	assert(eqml_ui_pointer(ui, EQML_MOVE, 2, 2, 0, 0, 200) == 1);
+	assert(eqml_ui_tick(ui, 201) == 1);
+	assert(!eqml_ui_visible(ui, 1) && hidden_exits == 1);
+	eqml_ui_destroy(ui);
+}
+
 int
 main(void)
 {
@@ -44,6 +95,7 @@ main(void)
 	const struct eqml_scene *frame;
 	struct eqml_point at;
 
+	test_hide_during_click();
 	assert(ui != NULL);
 	assert(eqml_ui_set(ui, 0, "one") == 0 && count == 1 && signals[0] == EQML_TEXT_CHANGED);
 	assert(eqml_ui_set(ui, 0, "one") == 0 && count == 1);

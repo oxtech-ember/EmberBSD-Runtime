@@ -44,7 +44,7 @@ enum eqml_signal {
 enum eqml_phase { EQML_DOWN, EQML_MOVE, EQML_UP, EQML_CANCEL };
 enum eqml_axis { EQML_AXIS_X, EQML_AXIS_Y };
 enum eqml_edge { EQML_EDGE_NONE, EQML_EDGE_TOP, EQML_EDGE_BOTTOM };
-enum eqml_node_kind { EQML_NODE_RECT, EQML_NODE_TEXT, EQML_NODE_AREA };
+enum eqml_node_kind { EQML_NODE_RECT, EQML_NODE_TEXT, EQML_NODE_AREA, EQML_NODE_ITEM };
 
 struct eqml_point { int32_t x, y; };
 
@@ -70,7 +70,7 @@ struct eqml_node {
 	int32_t bottom_margin;
 	const char *text;
 	int text_slot, opacity_area;
-	uint8_t pressed_transparency;
+	uint8_t pressed_transparency, transparency, hidden;
 	uint32_t buttons, signals;
 	uint8_t hover, drag_axes;
 	int drag_target;
@@ -104,6 +104,9 @@ int eqml_ui_timeout(const struct eqml_ui *, uint64_t);
 int32_t eqml_ui_coordinate(const struct eqml_ui *, size_t, enum eqml_axis);
 int eqml_ui_set_coordinate(struct eqml_ui *, size_t, enum eqml_axis, int32_t,
     uint32_t);
+/* Visibility is inherited. Setting a node changes only its explicit value. */
+int eqml_ui_visible(const struct eqml_ui *, size_t);
+int eqml_ui_set_visible(struct eqml_ui *, size_t, int);
 int eqml_ui_contains_press(const struct eqml_ui *, size_t);
 int eqml_ui_pressed(const struct eqml_ui *, size_t);
 const char *eqml_ui_string(const struct eqml_ui *, size_t);
