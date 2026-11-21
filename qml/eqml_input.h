@@ -44,7 +44,7 @@ enum eqml_signal {
 enum eqml_phase { EQML_DOWN, EQML_MOVE, EQML_UP, EQML_CANCEL };
 enum eqml_axis { EQML_AXIS_X, EQML_AXIS_Y };
 enum eqml_edge { EQML_EDGE_NONE, EQML_EDGE_TOP, EQML_EDGE_BOTTOM };
-enum eqml_node_kind { EQML_NODE_RECT, EQML_NODE_TEXT, EQML_NODE_AREA, EQML_NODE_ITEM };
+enum eqml_node_kind { EQML_NODE_RECT, EQML_NODE_TEXT, EQML_NODE_AREA, EQML_NODE_ITEM, EQML_NODE_IMAGE };
 
 struct eqml_point { int32_t x, y; };
 
@@ -75,6 +75,7 @@ struct eqml_node {
 	uint8_t hover, drag_axes;
 	int drag_target;
 	int32_t min_x, max_x, min_y, max_y;
+	const struct eqml_bitmap *bitmap;
 };
 
 struct eqml_ui;

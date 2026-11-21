@@ -138,7 +138,8 @@ validate_scene(const struct eqml_scene *scene, const int32_t *values,
 		const struct eqml_text *text;
 		struct text_run run;
 
-		if (item->kind == EQML_RECT)
+		if (item->kind == EQML_RECT || (item->kind == EQML_IMAGE &&
+		    eqml_bitmap_valid(item->data.image.bitmap)))
 			continue;
 		if (item->kind != EQML_TEXT) {
 			errno = EINVAL;
@@ -199,6 +200,39 @@ blend565(uint16_t dst, uint16_t src, unsigned int transparency)
 	g = (((src >> 5) & 63U) * a + ((dst >> 5) & 63U) * transparency + 127) / 255;
 	b = ((src & 31U) * a + (dst & 31U) * transparency + 127) / 255;
 	return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+static void
+draw_image_row(const struct eqml_region *region, const struct eqml_image *img,
+    uint16_t y, uint16_t *line, uint8_t transparency)
+{
+	const struct eqml_bitmap *bm = img->bitmap;
+	int64_t row = (int64_t)y - img->y;
+	int64_t left = img->x, right = left + bm->width;
+	size_t offset, length;
+
+	if (row < 0 || row >= bm->height || transparency == 255)
+		return;
+	if (left < region->x)
+		left = region->x;
+	if (right > region->x + region->width)
+		right = region->x + region->width;
+	if (right <= left)
+		return;
+	offset = (size_t)row * bm->width + (size_t)(left - img->x);
+	length = (size_t)(right - left);
+	line += (size_t)left;
+	if (bm->alpha == NULL && transparency == 0) {
+		memcpy(line, bm->pixels + offset, length * sizeof(*line));
+		return;
+	}
+	for (size_t i = 0; i < length; i++) {
+		unsigned int opacity = 255U - transparency;
+		if (bm->alpha != NULL)
+			opacity = (opacity * bm->alpha[offset + i] + 127U) / 255U;
+		if (opacity != 0)
+			line[i] = blend565(line[i], bm->pixels[offset + i], 255U - opacity);
+	}
 }
 
 static void
@@ -285,6 +319,10 @@ eqml_render_region(const struct eqml_scene *scene, const int32_t *values,
 		for (i = 0; i < scene->item_count; i++) {
 			const struct eqml_item *item = &scene->items[i];
 
+			if (item->kind == EQML_IMAGE) {
+				draw_image_row(region, &item->data.image, y, line, item->transparency);
+				continue;
+			}
 			if (item->kind == EQML_RECT) {
 				const struct eqml_rect *rect = &item->data.rect;
 				int64_t left = rect->x;

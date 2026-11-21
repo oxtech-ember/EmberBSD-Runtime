@@ -189,6 +189,9 @@ track_placement(struct eqml_ui *ui, const struct eqml_item *old,
 	if (n->kind == EQML_NODE_TEXT) {
 		x = old->data.text.x;
 		y = old->data.text.y;
+	} else if (n->kind == EQML_NODE_IMAGE) {
+		x = old->data.image.x;
+		y = old->data.image.y;
 	} else {
 		x = old->data.rect.x;
 		y = old->data.rect.y;
@@ -241,6 +244,10 @@ eqml_ui_frame(struct eqml_ui *ui)
 			item->kind = EQML_RECT;
 			item->data.rect = (struct eqml_rect){ .x = p->x, .y = p->y,
 			    .width = n->width, .height = n->height, .color = n->color };
+		} else if (n->kind == EQML_NODE_IMAGE) {
+			item->kind = EQML_IMAGE;
+			item->data.image = (struct eqml_image){ .x = p->x,
+			    .y = p->y, .bitmap = n->bitmap };
 		} else {
 			item->kind = EQML_TEXT;
 			item->data.text = (struct eqml_text){ .binding = -1,
@@ -338,7 +345,9 @@ eqml_ui_create(const struct eqml_scene *scene,
 	for (i = 0; i < pg->node_count; i++) {
 		const struct eqml_node *n = &pg->nodes[i];
 		if ((i == 0 ? n->parent != -1 : n->parent < 0 || (size_t)n->parent >= i) ||
-		    n->kind < EQML_NODE_RECT || n->kind > EQML_NODE_ITEM ||
+		    n->kind < EQML_NODE_RECT || n->kind > EQML_NODE_IMAGE ||
+		    (n->kind == EQML_NODE_IMAGE && (!eqml_bitmap_valid(n->bitmap) ||
+		    n->width != n->bitmap->width || n->height != n->bitmap->height)) ||
 		    (n->anchors & ~(EQML_HCENTER | EQML_VCENTER)) ||
 		    n->bottom_edge < EQML_EDGE_NONE || n->bottom_edge > EQML_EDGE_BOTTOM ||
 		    (n->bottom_edge && !valid_index(ui, n->bottom_target)) ||

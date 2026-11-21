@@ -1,6 +1,6 @@
 # EmberBSD QML scene renderer
 
-This directory implements `EQML_SCENE_ABI 4`, the small target-side runtime
+This directory implements `EQML_SCENE_ABI 5`, the small target-side runtime
 contract for compiled static scenes and opt-in interactive scenes. The SDK compiler owns QML
 parsing and emits a C translation unit defining `const struct eqml_scene
 eqml_app` (or another selected public symbol). Runtime does not parse QML or
@@ -9,10 +9,9 @@ allocate the application's model values.
 ## Scene and model
 
 `struct eqml_scene` contains a fixed RGB565 background, an ordered array of
-`struct eqml_item`, and integer properties. Each item is `EQML_RECT` or
-`EQML_TEXT`. The array is already in final paint order from the compiler; the
-renderer visits it in order and later items cover earlier ones. Rectangle and
-text items can be mixed.
+`struct eqml_item`, and integer properties. Items can be rectangles, text,
+or images. The compiler supplies them in paint order. Later items cover
+earlier ones according to their opacity.
 
 The SDK compiler emits items with designated initializers such as:
 
@@ -72,6 +71,17 @@ borrows the RGB565 row only until returning; it returns 0 or -1 with `errno`
 set. The renderer uses a caller-owned line buffer and fixed-size per-text
 formatting state. It formats bound text only for rows intersecting that item
 and does not allocate a framebuffer or heap memory.
+
+### Compiled images
+
+An `EQML_IMAGE` places an immutable bitmap at a signed scene position.
+The renderer copies row-major RGB565 pixels at their native size, clipping to
+the requested region. An optional byte per pixel supplies straight alpha,
+from 0 (transparent) to 255 (opaque), which multiplies the item's opacity.
+The descriptor carries both array lengths. Keep the arrays alive for the
+scene's lifetime. Interactive `EQML_NODE_IMAGE` nodes use the same bitmap,
+with matching node and bitmap dimensions, and participate in placement,
+visibility and damage tracking. Asset decoding belongs to the host compiler.
 
 ## Interactive scenes
 

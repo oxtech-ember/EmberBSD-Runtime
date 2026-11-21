@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define EQML_SCENE_ABI 4
+#define EQML_SCENE_ABI 5
 
 enum {
 	EQML_HCENTER = 1,
@@ -35,7 +35,8 @@ struct eqml_text {
 
 enum eqml_item_kind {
 	EQML_TEXT,
-	EQML_RECT
+	EQML_RECT,
+	EQML_IMAGE
 };
 
 struct eqml_rect {
@@ -46,14 +47,44 @@ struct eqml_rect {
 	uint16_t color;
 };
 
+/* Packed, row-major RGB565 and optional straight (0..255) alpha.
+ * Counts describe the backing arrays in elements. The scene borrows both. */
+struct eqml_bitmap {
+	uint16_t width, height;
+	const uint16_t *pixels;
+	size_t pixel_count;
+	const uint8_t *alpha;
+	size_t alpha_count;
+};
+
+struct eqml_image {
+	int32_t x, y;
+	const struct eqml_bitmap *bitmap;
+};
+
 struct eqml_item {
 	enum eqml_item_kind kind;
 	uint8_t transparency; /* 0 = opaque, 255 = invisible */
 	union {
 		struct eqml_rect rect;
 		struct eqml_text text;
+		struct eqml_image image;
 	} data;
 };
+
+/* Return nonzero for an image whose storage covers its entire extent. */
+static inline int
+eqml_bitmap_valid(const struct eqml_bitmap *bm)
+{
+	size_t count;
+
+	if (bm == NULL || bm->width == 0 || bm->height == 0 || bm->pixels == NULL)
+		return 0;
+	count = (size_t)bm->width * bm->height;
+	return count <= SIZE_MAX / sizeof(*bm->pixels) &&
+	    bm->pixel_count == count &&
+	    bm->alpha_count == (bm->alpha == NULL ? 0 : count);
+}
 
 struct eqml_program;
 struct eqml_region { uint16_t x, y, width, height; };
