@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define EQML_SCENE_ABI 1
+#define EQML_SCENE_ABI 2
 
 enum {
 	EQML_HCENTER = 1,
@@ -23,19 +23,42 @@ struct eqml_text {
 	const char *prefix;
 	const char *suffix;
 	int32_t binding;
-	int16_t x;
-	int16_t y;
+	int32_t x;
+	int32_t y;
+	uint16_t parent_width;
+	uint16_t parent_height;
 	uint16_t color;
 	uint8_t pixel_size;
 	uint8_t anchors;
+};
+
+enum eqml_item_kind {
+	EQML_TEXT,
+	EQML_RECT
+};
+
+struct eqml_rect {
+	int32_t x;
+	int32_t y;
+	uint16_t width;
+	uint16_t height;
+	uint16_t color;
+};
+
+struct eqml_item {
+	enum eqml_item_kind kind;
+	union {
+		struct eqml_rect rect;
+		struct eqml_text text;
+	} data;
 };
 
 struct eqml_scene {
 	uint16_t width;
 	uint16_t height;
 	uint16_t background;
-	const struct eqml_text *texts;
-	size_t text_count;
+	const struct eqml_item *items;
+	size_t item_count;
 	const struct eqml_int *properties;
 	size_t property_count;
 };

@@ -119,7 +119,7 @@ run_character(const struct text_run *run, size_t index)
 
 static int
 validate_scene(const struct eqml_scene *scene, const int32_t *values,
-	uint16_t *line, size_t line_pixels, eqml_write_row_fn write_row)
+	const uint16_t *line, size_t line_pixels, eqml_write_row_fn write_row)
 {
 	size_t i;
 
@@ -127,16 +127,24 @@ validate_scene(const struct eqml_scene *scene, const int32_t *values,
 	if (scene == NULL || line == NULL || write_row == NULL ||
 	    scene->width == 0 || scene->height == 0 ||
 	    line_pixels < scene->width ||
-	    (scene->text_count != 0 && scene->texts == NULL) ||
+	    (scene->item_count != 0 && scene->items == NULL) ||
 	    (scene->property_count != 0 &&
 	    (scene->properties == NULL || values == NULL))) {
 		errno = EINVAL;
 		return -1;
 	}
-	for (i = 0; i < scene->text_count; i++) {
-		const struct eqml_text *text = &scene->texts[i];
+	for (i = 0; i < scene->item_count; i++) {
+		const struct eqml_item *item = &scene->items[i];
+		const struct eqml_text *text;
 		struct text_run run;
 
+		if (item->kind == EQML_RECT)
+			continue;
+		if (item->kind != EQML_TEXT) {
+			errno = EINVAL;
+			return -1;
+		}
+		text = &item->data.text;
 		if (text->pixel_size < 7 || text->pixel_size > 64 ||
 		    (text->anchors & ~(EQML_HCENTER | EQML_VCENTER)) != 0) {
 			errno = EINVAL;
@@ -159,23 +167,22 @@ text_width(const struct text_run *run, unsigned int pixel_size)
 }
 
 static int64_t
-text_top(const struct eqml_scene *scene, const struct eqml_text *text)
+text_top(const struct eqml_text *text)
 {
 	int64_t top = text->y;
 
 	if ((text->anchors & EQML_VCENTER) != 0)
-		top += ((int64_t)scene->height - text->pixel_size) / 2;
+		top += ((int64_t)text->parent_height - text->pixel_size) / 2;
 	return top;
 }
 
 static int64_t
-text_left(const struct eqml_scene *scene, const struct eqml_text *text,
-	const struct text_run *run)
+text_left(const struct eqml_text *text, const struct text_run *run)
 {
 	int64_t left = text->x;
 
 	if ((text->anchors & EQML_HCENTER) != 0)
-		left += ((int64_t)scene->width - text_width(run,
+		left += ((int64_t)text->parent_width - text_width(run,
 		    text->pixel_size)) / 2;
 	return left;
 }
@@ -249,21 +256,42 @@ eqml_render(const struct eqml_scene *scene, const int32_t *values,
 
 		for (i = 0; i < scene->width; i++)
 			line[i] = scene->background;
-		for (i = 0; i < scene->text_count; i++) {
-			const struct eqml_text *text = &scene->texts[i];
-			struct text_run run;
-			int64_t top = text_top(scene, text);
+		for (i = 0; i < scene->item_count; i++) {
+			const struct eqml_item *item = &scene->items[i];
 
-			if ((int64_t)y < top ||
-			    (int64_t)y >= top + text->pixel_size)
+			if (item->kind == EQML_RECT) {
+				const struct eqml_rect *rect = &item->data.rect;
+				int64_t left = rect->x;
+				int64_t top = rect->y;
+				int64_t right = left + rect->width;
+				int64_t bottom = top + rect->height;
+				int64_t x;
+
+				if (rect->width == 0 || rect->height == 0 ||
+				    (int64_t)y < top || (int64_t)y >= bottom)
+					continue;
+				if (left < 0)
+					left = 0;
+				if (right > scene->width)
+					right = scene->width;
+				for (x = left; x < right; x++)
+					line[x] = rect->color;
 				continue;
-			/* This is the only repeated model formatting. It runs only for
-			 * rows touched by this glyph, not for the full scene height.
-			 */
-			if (prepare_run(scene, text, values, &run) == -1)
-				return -1;
-			draw_text_row(scene, text, &run, text_left(scene, text, &run),
-			    top, y, line);
+			}
+			if (item->kind == EQML_TEXT) {
+				const struct eqml_text *text = &item->data.text;
+				struct text_run run;
+				int64_t top = text_top(text);
+
+				if ((int64_t)y < top ||
+				    (int64_t)y >= top + text->pixel_size)
+					continue;
+				/* Format only on rows touched by this glyph. */
+				if (prepare_run(scene, text, values, &run) == -1)
+					return -1;
+				draw_text_row(scene, text, &run,
+				    text_left(text, &run), top, y, line);
+			}
 		}
 		errno = 0;
 		if (write_row(cookie, y, line, scene->width) == -1) {

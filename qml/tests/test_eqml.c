@@ -67,14 +67,18 @@ test_bound_text_and_values(void)
 	static const struct eqml_int properties[] = {
 		{ .name = "temperature", .initial = 21 }
 	};
-	static const struct eqml_text texts[] = {
-		{ .prefix = "T=", .suffix = " C", .binding = 0,
-		  .x = 0, .y = 0, .color = 0xffff, .pixel_size = 14,
-		  .anchors = EQML_HCENTER | EQML_VCENTER }
+	static const struct eqml_item items[] = {
+		{ .kind = EQML_TEXT, .data.text = {
+			.prefix = "T=", .suffix = " C", .binding = 0,
+			.x = 0, .y = 0, .parent_width = WIDTH,
+			.parent_height = HEIGHT, .color = 0xffff,
+			.pixel_size = 14,
+			.anchors = EQML_HCENTER | EQML_VCENTER
+		} }
 	};
 	const struct eqml_scene scene = {
 		.width = WIDTH, .height = HEIGHT, .background = 0x1234,
-		.texts = texts, .text_count = 1,
+		.items = items, .item_count = 1,
 		.properties = properties, .property_count = 1
 	};
 	struct capture positive = { .fail_at = -1 }, negative = { .fail_at = -1 };
@@ -104,13 +108,17 @@ test_int32_min(void)
 	static const struct eqml_int properties[] = {
 		{ .name = "n", .initial = INT32_MIN }
 	};
-	static const struct eqml_text texts[] = {
-		{ .prefix = "", .suffix = "", .binding = 0,
-		  .x = 0, .y = 0, .color = 0xffff, .pixel_size = 7 }
+	static const struct eqml_item items[] = {
+		{ .kind = EQML_TEXT, .data.text = {
+			.prefix = "", .suffix = "", .binding = 0,
+			.x = 0, .y = 0, .parent_width = WIDTH,
+			.parent_height = HEIGHT, .color = 0xffff,
+			.pixel_size = 7
+		} }
 	};
 	const struct eqml_scene scene = {
 		.width = WIDTH, .height = HEIGHT, .background = 0,
-		.texts = texts, .text_count = 1,
+		.items = items, .item_count = 1,
 		.properties = properties, .property_count = 1
 	};
 	struct capture capture = { .fail_at = -1 };
@@ -125,13 +133,16 @@ test_int32_min(void)
 static void
 test_errors(void)
 {
-	static const struct eqml_text text[] = {
-		{ .prefix = "ok", .binding = -1, .pixel_size = 7,
-		  .color = 0xffff }
+	static const struct eqml_item items[] = {
+		{ .kind = EQML_TEXT, .data.text = {
+			.prefix = "ok", .binding = -1, .pixel_size = 7,
+			.parent_width = WIDTH, .parent_height = HEIGHT,
+			.color = 0xffff
+		} }
 	};
 	const struct eqml_scene scene = {
 		.width = WIDTH, .height = HEIGHT, .background = 0,
-		.texts = text, .text_count = 1
+		.items = items, .item_count = 1
 	};
 	struct capture capture = { .fail_at = 2 };
 	uint16_t line[WIDTH];
@@ -172,13 +183,15 @@ static void
 test_ascii_font(void)
 {
 	char printable[96];
-	struct eqml_text text = {
-		.prefix = printable, .binding = -1, .color = 0xffff,
-		.pixel_size = 7
+	struct eqml_item item = {
+		.kind = EQML_TEXT, .data.text = {
+			.prefix = printable, .binding = -1, .color = 0xffff,
+			.pixel_size = 7, .parent_width = 760, .parent_height = 8
+		}
 	};
 	const struct eqml_scene scene = {
 		.width = 760, .height = 8, .background = 0,
-		.texts = &text, .text_count = 1
+		.items = &item, .item_count = 1
 	};
 	struct ascii_capture capture = {0};
 	uint16_t line[760];
@@ -188,6 +201,7 @@ test_ascii_font(void)
 	for (i = 0; i < 95; i++)
 		printable[i] = (char)(0x20 + i);
 	printable[95] = '\0';
+	assert(printable[95] == '\0');
 	assert(eqml_render(&scene, NULL, line, 760, capture_ascii_row,
 	    &capture) == 0);
 	assert(capture.rows == 8);
@@ -203,6 +217,126 @@ test_ascii_font(void)
 	assert(case_differs);
 }
 
+static void
+test_mixed_items_order_and_clipping(void)
+{
+	static const struct eqml_item items[] = {
+		{ .kind = EQML_RECT, .data.rect = {
+			.x = -2, .y = -3, .width = 5, .height = 6,
+			.color = 0x2222
+		} },
+		{ .kind = EQML_RECT, .data.rect = {
+			.x = WIDTH - 2, .y = HEIGHT - 2, .width = 5, .height = 5,
+			.color = 0x3333
+		} },
+		{ .kind = EQML_RECT, .data.rect = {
+			.x = 8, .y = 7, .width = 0, .height = 5,
+			.color = 0x4444
+		} },
+		{ .kind = EQML_RECT, .data.rect = {
+			.x = 8, .y = 7, .width = 5, .height = 0,
+			.color = 0x5555
+		} },
+		{ .kind = EQML_RECT, .data.rect = {
+			.x = INT32_MAX - 4, .y = 0, .width = UINT16_MAX,
+			.height = 2, .color = 0xaaaa
+		} },
+		{ .kind = EQML_RECT, .data.rect = {
+			.x = 30, .y = 10, .width = 8, .height = 8,
+			.color = 0x6666
+		} },
+		{ .kind = EQML_TEXT, .data.text = {
+			.prefix = "A", .binding = -1, .x = 30, .y = 10,
+			.parent_width = 8, .parent_height = 8,
+			.color = 0x7777, .pixel_size = 8
+		} },
+		{ .kind = EQML_TEXT, .data.text = {
+			.prefix = "A", .binding = -1, .x = 50, .y = 10,
+			.parent_width = 8, .parent_height = 8,
+			.color = 0x8888, .pixel_size = 8
+		} },
+		{ .kind = EQML_RECT, .data.rect = {
+			.x = 50, .y = 10, .width = 8, .height = 8,
+			.color = 0x9999
+		} },
+		{ .kind = EQML_TEXT, .data.text = {
+			.prefix = "A", .binding = -1, .x = INT32_MAX, .y = 0,
+			.parent_width = 0, .parent_height = 0,
+			.color = 0xbbbb, .pixel_size = 8
+		} }
+	};
+	const struct eqml_scene scene = {
+		.width = WIDTH, .height = HEIGHT, .background = 0x1111,
+		.items = items, .item_count = sizeof(items) / sizeof(items[0])
+	};
+	struct capture capture = { .fail_at = -1 };
+	uint16_t line[WIDTH];
+
+	assert(eqml_render(&scene, NULL, line, WIDTH, capture_row,
+	    &capture) == 0);
+	assert(count_color(&capture, 0, 0, 3, 3, 0x2222) == 9);
+	assert(count_color(&capture, WIDTH - 2, HEIGHT - 2, WIDTH, HEIGHT,
+	    0x3333) == 4);
+	assert(count_color(&capture, 8, 7, 13, 12, 0x4444) == 0);
+	assert(count_color(&capture, 8, 7, 13, 12, 0x5555) == 0);
+	assert(count_color(&capture, 0, 0, WIDTH, 2, 0xaaaa) == 0);
+	assert(count_color(&capture, 30, 10, 38, 18, 0x7777) > 0);
+	assert(count_color(&capture, 30, 10, 38, 18, 0x6666) > 0);
+	assert(count_color(&capture, 50, 10, 58, 18, 0x8888) == 0);
+	assert(count_color(&capture, 50, 10, 58, 18, 0x9999) == 64);
+	assert(count_color(&capture, 0, 0, WIDTH, HEIGHT, 0xbbbb) == 0);
+	assert(count_color(&capture, 18, 20, 26, 28, 0x7777) == 0);
+}
+
+static void
+test_text_center_uses_parent_extent(void)
+{
+	static const struct eqml_item items[] = {
+		{ .kind = EQML_TEXT, .data.text = {
+			.prefix = "A", .binding = -1,
+			.x = 10, .y = 12, .parent_width = 24,
+			.parent_height = 24, .color = 0xffff,
+			.pixel_size = 8, .anchors = EQML_HCENTER | EQML_VCENTER
+		} },
+		{ .kind = EQML_TEXT, .data.text = {
+			.prefix = "A", .binding = -1,
+			.x = 70, .y = 40, .parent_width = 0,
+			.parent_height = 0, .color = 0xeeee,
+			.pixel_size = 8, .anchors = EQML_HCENTER | EQML_VCENTER
+		} }
+	};
+	const struct eqml_scene scene = {
+		.width = WIDTH, .height = HEIGHT, .background = 0,
+		.items = items, .item_count = 2
+	};
+	struct capture capture = { .fail_at = -1 };
+	uint16_t line[WIDTH];
+
+	assert(eqml_render(&scene, NULL, line, WIDTH, capture_row,
+	    &capture) == 0);
+	assert(count_color(&capture, 18, 20, 26, 28, 0xffff) > 0);
+	assert(count_color(&capture, 54, 32, 62, 40, 0xffff) == 0);
+	assert(count_color(&capture, 66, 36, 74, 44, 0xeeee) > 0);
+}
+
+static void
+test_unknown_item_kind(void)
+{
+	const struct eqml_item item = {
+		.kind = (enum eqml_item_kind)99
+	};
+	const struct eqml_scene scene = {
+		.width = WIDTH, .height = HEIGHT, .background = 0,
+		.items = &item, .item_count = 1
+	};
+	struct capture capture = { .fail_at = -1 };
+	uint16_t line[WIDTH];
+
+	assert(eqml_render(&scene, NULL, line, WIDTH, capture_row,
+	    &capture) == -1 && errno == EINVAL);
+	assert(capture.rows == 0);
+}
+
 int
 main(void)
 {
@@ -210,6 +344,9 @@ main(void)
 	test_int32_min();
 	test_errors();
 	test_ascii_font();
-	puts("eqml renderer: 4 tests passed");
+	test_mixed_items_order_and_clipping();
+	test_text_center_uses_parent_extent();
+	test_unknown_item_kind();
+	puts("eqml renderer: 7 tests passed");
 	return 0;
 }
