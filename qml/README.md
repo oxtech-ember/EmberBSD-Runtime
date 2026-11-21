@@ -115,6 +115,24 @@ All three public operations return 0 on success, -1 on failure and set `errno`.
 They do not install signal handlers or own process lifetime; applications
 choose their event loop and close the backend during normal shutdown.
 
+## wscons pointer input
+
+`eqml_wsmouse_open()` opens the selected wsmouse unit in nonblocking mode and
+negotiates the current wscons event version. Poll the file descriptor, drain
+`eqml_wsmouse_read()` until it returns zero, and then process the UI timer.
+X and Y reported together produce a single pointer position, including when
+the caller's event buffer fills. The adapter translates absolute or relative
+motion and the changed button. Event timestamps are in the same monotonic
+clock domain as the UI timer. Keyboard modifiers are zero on this input path.
+
+The native regression uses constants from the selected EmberBSD OS checkout:
+
+```sh
+"$HOST_PREFIX/bin/python3.15" qml/tests/run-wsmouse.py \
+  --host-prefix "$HOST_PREFIX" --wscons-header "$OS_SOURCE/sys/dev/wscons/wsconsio.h" \
+  --out "$OUT/test-wsmouse"
+```
+
 ## Font provenance and licenses
 
 The 8×8 bitmap table is the printable ASCII subset of
