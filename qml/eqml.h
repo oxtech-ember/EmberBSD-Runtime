@@ -56,6 +56,7 @@ struct eqml_item {
 };
 
 struct eqml_program;
+struct eqml_region { uint16_t x, y, width, height; };
 
 struct eqml_scene {
 	uint16_t width;
@@ -81,5 +82,11 @@ typedef int (*eqml_write_row_fn)(void *, uint16_t, const uint16_t *,
  */
 int eqml_render(const struct eqml_scene *, const int32_t *values,
 	uint16_t *line, size_t line_pixels, eqml_write_row_fn, void *);
+
+/* The callback receives the scene y and region.width pixels at region.x.
+ * The scratch line remains full-width. */
+int eqml_render_region(const struct eqml_scene *, const int32_t *values,
+    const struct eqml_region *, uint16_t *line, size_t line_pixels,
+    eqml_write_row_fn, void *);
 
 #endif /* EQML_H */

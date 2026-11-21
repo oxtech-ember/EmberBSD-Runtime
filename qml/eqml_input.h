@@ -92,6 +92,11 @@ struct eqml_ui *eqml_ui_create(const struct eqml_scene *,
     void (*)(void *, const char *), void *);
 void eqml_ui_destroy(struct eqml_ui *);
 const struct eqml_scene *eqml_ui_frame(struct eqml_ui *);
+typedef int (*eqml_present_fn)(void *, const struct eqml_scene *, const struct eqml_region *);
+/* Present accumulated scene damage synchronously. The callback borrows the
+ * frame and region until it returns and must not update or destroy this UI.
+ * Return 0 or -1 with errno. A failure keeps the whole region pending. */
+int eqml_ui_present(struct eqml_ui *, eqml_present_fn, void *);
 int eqml_ui_pointer(struct eqml_ui *, enum eqml_phase, int32_t, int32_t,
     uint32_t, uint32_t, uint64_t);
 int eqml_ui_tick(struct eqml_ui *, uint64_t);

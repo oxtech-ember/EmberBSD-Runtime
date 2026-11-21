@@ -202,7 +202,7 @@ blend565(uint16_t dst, uint16_t src, unsigned int transparency)
 }
 
 static void
-draw_text_row(const struct eqml_scene *scene, const struct eqml_text *text,
+draw_text_row(const struct eqml_region *region, const struct eqml_text *text,
 	const struct text_run *run, int64_t left, int64_t top, uint16_t y,
 	uint16_t *line, uint8_t transparency)
 {
@@ -234,6 +234,8 @@ draw_text_row(const struct eqml_scene *scene, const struct eqml_text *text,
 			unsigned int source_x, source_y_index, source_x_end;
 			int set = 0;
 
+			if (target_x < region->x || target_x >= region->x + region->width)
+				continue;
 			if (cell < 8) {
 				source_x = x * 8 / cell;
 				source_x_end = (x + 1) * 8 / cell;
@@ -251,7 +253,7 @@ draw_text_row(const struct eqml_scene *scene, const struct eqml_text *text,
 					    (1u << source_x_index)) != 0)
 						set = 1;
 			}
-			if (set && target_x >= 0 && target_x < scene->width)
+			if (set)
 				line[target_x] = blend565(line[target_x],
 				    text->color, transparency);
 		}
@@ -259,7 +261,8 @@ draw_text_row(const struct eqml_scene *scene, const struct eqml_text *text,
 }
 
 int
-eqml_render(const struct eqml_scene *scene, const int32_t *values,
+eqml_render_region(const struct eqml_scene *scene, const int32_t *values,
+    const struct eqml_region *region,
     uint16_t *line, size_t line_pixels, eqml_write_row_fn write_row,
     void *cookie)
 {
@@ -267,10 +270,17 @@ eqml_render(const struct eqml_scene *scene, const int32_t *values,
 
 	if (validate_scene(scene, values, line, line_pixels, write_row) == -1)
 		return -1;
-	for (y = 0; y < scene->height; y++) {
+	if (region == NULL || region->x + region->width > scene->width ||
+	    region->y + region->height > scene->height) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (region->width == 0 || region->height == 0)
+		return 0;
+	for (y = region->y; y < region->y + region->height; y++) {
 		size_t i;
 
-		for (i = 0; i < scene->width; i++)
+		for (i = region->x; i < (size_t)region->x + region->width; i++)
 			line[i] = scene->background;
 		for (i = 0; i < scene->item_count; i++) {
 			const struct eqml_item *item = &scene->items[i];
@@ -286,10 +296,10 @@ eqml_render(const struct eqml_scene *scene, const int32_t *values,
 				if (rect->width == 0 || rect->height == 0 ||
 				    (int64_t)y < top || (int64_t)y >= bottom)
 					continue;
-				if (left < 0)
-					left = 0;
-				if (right > scene->width)
-					right = scene->width;
+				if (left < region->x)
+					left = region->x;
+				if (right > region->x + region->width)
+					right = region->x + region->width;
 				for (x = left; x < right; x++)
 					line[x] = blend565(line[x], rect->color,
 					    item->transparency);
@@ -306,16 +316,29 @@ eqml_render(const struct eqml_scene *scene, const int32_t *values,
 				/* Format only on rows touched by this glyph. */
 				if (prepare_run(scene, text, values, &run) == -1)
 					return -1;
-				draw_text_row(scene, text, &run,
+				draw_text_row(region, text, &run,
 				    text_left(text, &run), top, y, line, item->transparency);
 			}
 		}
 		errno = 0;
-		if (write_row(cookie, y, line, scene->width) == -1) {
+		if (write_row(cookie, y, line + region->x, region->width) == -1) {
 			if (errno == 0)
 				errno = EIO;
 			return -1;
 		}
 	}
 	return 0;
+}
+
+int
+eqml_render(const struct eqml_scene *scene, const int32_t *values,
+    uint16_t *line, size_t line_pixels, eqml_write_row_fn write_row,
+    void *cookie)
+{
+	if (scene == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	const struct eqml_region full = { 0, 0, scene->width, scene->height };
+	return eqml_render_region(scene, values, &full, line, line_pixels, write_row, cookie);
 }

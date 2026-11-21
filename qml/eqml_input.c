@@ -29,6 +29,7 @@ struct animation {
 struct eqml_ui {
 	const struct eqml_program *program;
 	struct eqml_scene frame;
+	struct eqml_region damage;
 	struct eqml_item *items;
 	struct placement *places;
 	char (*strings)[EQML_STRING_CAP];
@@ -81,6 +82,15 @@ cell_width(const struct eqml_node *node)
 	return (node->pixel_size + 1) / 2;
 }
 
+static int32_t
+label_width(const struct eqml_node *node, const char *text)
+{
+	int cell = cell_width(node), spacing = (cell + 7) / 8;
+	size_t length = strlen(text);
+
+	return length != 0 ? (int32_t)length * (cell + spacing) - spacing : 0;
+}
+
 static int
 place(struct eqml_ui *ui, size_t index)
 {
@@ -98,12 +108,8 @@ place(struct eqml_ui *ui, size_t index)
 	p->width = node->width;
 	p->height = node->height;
 	if (node->kind == EQML_NODE_TEXT) {
-		size_t length = strlen(label(ui, node));
-		int cell = cell_width(node);
-		int spacing = (cell + 7) / 8;
-
-		if (p->width == 0 && length != 0)
-			p->width = (int32_t)length * (cell + spacing) - spacing;
+		if (p->width == 0)
+			p->width = label_width(node, label(ui, node));
 		if (p->height == 0)
 			p->height = node->pixel_size;
 	}
@@ -138,6 +144,68 @@ place(struct eqml_ui *ui, size_t index)
 	return 0;
 }
 
+static void
+include_damage(struct eqml_ui *ui, int32_t x, int32_t y, int32_t width, int32_t height)
+{
+	struct eqml_region *d = &ui->damage;
+	int64_t right = (int64_t)x + width, bottom = (int64_t)y + height;
+
+	if (x < 0)
+		x = 0;
+	if (y < 0)
+		y = 0;
+	if (right > ui->frame.width)
+		right = ui->frame.width;
+	if (bottom > ui->frame.height)
+		bottom = ui->frame.height;
+	if (right <= x || bottom <= y)
+		return;
+	if (d->width != 0) {
+		if (x > d->x)
+			x = d->x;
+		if (y > d->y)
+			y = d->y;
+		if (right < d->x + d->width)
+			right = d->x + d->width;
+		if (bottom < d->y + d->height)
+			bottom = d->y + d->height;
+	}
+	*d = (struct eqml_region){ (uint16_t)x, (uint16_t)y,
+	    (uint16_t)(right - x), (uint16_t)(bottom - y) };
+}
+
+static void
+track_placement(struct eqml_ui *ui, const struct eqml_item *old,
+    const struct eqml_node *n, const struct placement *p)
+{
+	int32_t x, y, width, height;
+
+	if (ui->damage.width == ui->frame.width && ui->damage.height == ui->frame.height)
+		return;
+	if (n->kind == EQML_NODE_TEXT) {
+		x = old->data.text.x;
+		y = old->data.text.y;
+	} else {
+		x = old->data.rect.x;
+		y = old->data.rect.y;
+	}
+	if (x == p->x && y == p->y && old->transparency == p->transparency)
+		return;
+	/* Compiled sizes and colors are immutable. Changing a string marks
+	 * the full frame before overwriting its old text. */
+	if (n->kind == EQML_NODE_TEXT) {
+		width = label_width(n, label(ui, n));
+		height = n->pixel_size;
+	} else {
+		width = n->width;
+		height = n->height;
+	}
+	if (old->transparency != 255)
+		include_damage(ui, x, y, width, height);
+	if (p->transparency != 255)
+		include_damage(ui, p->x, p->y, width, height);
+}
+
 const struct eqml_scene *
 eqml_ui_frame(struct eqml_ui *ui)
 {
@@ -160,7 +228,10 @@ eqml_ui_frame(struct eqml_ui *ui)
 			return NULL;
 		if (n->kind == EQML_NODE_AREA)
 			continue;
-		item = &ui->items[count++];
+		item = &ui->items[count];
+		if (count < ui->frame.item_count)
+			track_placement(ui, item, n, p);
+		count++;
 		item->transparency = p->transparency;
 		if (n->kind == EQML_NODE_RECT) {
 			item->kind = EQML_RECT;
@@ -176,6 +247,28 @@ eqml_ui_frame(struct eqml_ui *ui)
 	}
 	ui->frame.item_count = count;
 	return &ui->frame;
+}
+
+int
+eqml_ui_present(struct eqml_ui *ui, eqml_present_fn present, void *cookie)
+{
+	const struct eqml_scene *frame;
+	struct eqml_region pending;
+
+	if (ui == NULL || present == NULL)
+		return invalid();
+	frame = eqml_ui_frame(ui);
+	if (frame == NULL)
+		return -1;
+	if (ui->damage.width == 0)
+		return 0;
+	pending = ui->damage;
+	ui->damage = (struct eqml_region){ 0 };
+	if (present(cookie, frame, &pending) == -1) {
+		include_damage(ui, pending.x, pending.y, pending.width, pending.height);
+		return -1;
+	}
+	return 0;
 }
 
 static int
@@ -226,6 +319,7 @@ eqml_ui_create(const struct eqml_scene *scene,
 	ui->frame.width = scene->width;
 	ui->frame.height = scene->height;
 	ui->frame.background = scene->background;
+	ui->damage = (struct eqml_region){ 0, 0, scene->width, scene->height };
 	ui->grab = ui->hover = ui->last_click = -1;
 	ui->logger = logger;
 	ui->cookie = cookie;
@@ -423,6 +517,7 @@ eqml_ui_set(struct eqml_ui *ui, size_t slot, const char *value)
 	}
 	if (copy_text(ui->strings[slot], value) == -1)
 		return -1;
+	ui->damage = (struct eqml_region){ 0, 0, ui->frame.width, ui->frame.height };
 	if (eqml_ui_frame(ui) == NULL)
 		return -1;
 	if (ui->program->handler == NULL)

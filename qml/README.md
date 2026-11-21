@@ -130,6 +130,26 @@ press-and-hold deadline. The animation requests samples at 16 ms intervals
 and at the exact final deadline. A late sample advances directly to the
 current time. The timeout returns to -1 once all pending work completes.
 
+### Partial presentation
+
+For a retained framebuffer at a fixed viewport, call `eqml_ui_present()`
+with a synchronous presentation callback. The first call covers the whole
+scene. Later calls cover the accumulated union of the old and new painted
+bounds, clipped to the scene. The union includes descendant text which can
+extend beyond its parent. Changes to a string invalidate the whole scene.
+The UI stores one pending rectangle and reuses its existing flat draw list.
+
+The callback can pass the borrowed frame and region to
+`eqml_wsdisplay_present_region_at()` with the same viewport offset and
+full-width line buffer as a full presentation. The renderer paints the
+background and intersecting items in their original order, including items
+that overlap a previous position. A failed callback leaves the full region
+pending for retry. A successful call with no pending damage skips the
+callback. Do not update or destroy the UI from its callback. When replacing
+the framebuffer or changing its viewport, paint the full frame at the new
+location and restore the old viewport as needed before resuming partial
+presentation.
+
 ## wsdisplay backend
 
 `eqml_wsdisplay_open()` validates the device's reported geometry, depth,

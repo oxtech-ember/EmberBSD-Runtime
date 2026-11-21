@@ -105,18 +105,33 @@ present_row(void *cookie, uint16_t y, const uint16_t *pixels, uint16_t width)
 }
 
 int
+eqml_wsdisplay_present_region_at(struct eqml_wsdisplay *display,
+    const struct eqml_scene *scene, const int32_t *values, uint16_t x, uint16_t y,
+    const struct eqml_region *region, uint16_t *line, size_t line_pixels)
+{
+	struct viewport viewport = { display, x, y };
+	if (display == NULL || display->framebuffer == NULL || scene == NULL || region == NULL ||
+	    x > display->width || scene->width > display->width - x ||
+	    y > display->height || scene->height > display->height - y || region->x > scene->width) {
+		errno = EINVAL;
+		return -1;
+	}
+	viewport.x = (uint16_t)(x + region->x);
+	return eqml_render_region(scene, values, region, line, line_pixels, present_row, &viewport);
+}
+
+int
 eqml_wsdisplay_present_at(struct eqml_wsdisplay *display,
     const struct eqml_scene *scene, const int32_t *values, uint16_t x, uint16_t y,
     uint16_t *line, size_t line_pixels)
 {
-	struct viewport viewport = { display, x, y };
-	if (display == NULL || display->framebuffer == NULL || scene == NULL ||
-	    x > display->width || scene->width > display->width - x ||
-	    y > display->height || scene->height > display->height - y) {
+	if (scene == NULL) {
 		errno = EINVAL;
 		return -1;
 	}
-	return eqml_render(scene, values, line, line_pixels, present_row, &viewport);
+	const struct eqml_region full = { 0, 0, scene->width, scene->height };
+	return eqml_wsdisplay_present_region_at(display, scene, values, x, y, &full,
+	    line, line_pixels);
 }
 
 int
