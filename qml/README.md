@@ -81,7 +81,12 @@ from 0 (transparent) to 255 (opaque), which multiplies the item's opacity.
 The descriptor carries both array lengths. Keep the arrays alive for the
 scene's lifetime. Interactive `EQML_NODE_IMAGE` nodes use the same bitmap,
 with matching node and bitmap dimensions, and participate in placement,
-visibility and damage tracking. Asset decoding belongs to the host compiler.
+visibility and damage tracking. Applications can call
+`eqml_ui_set_bitmap()` on the UI thread to display a captured image of the
+same dimensions. The instance borrows the descriptor and pixels until the
+next successful replacement or destruction. Calling the setter after editing
+pixels in place redraws the visible bounds. Passing NULL restores the compiled
+image. Asset decoding belongs to the host compiler.
 
 ## Interactive scenes
 

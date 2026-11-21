@@ -13,6 +13,7 @@
 #define FRAME_MS 16U
 
 struct placement {
+	const struct eqml_bitmap *bitmap;
 	int32_t x, y, width, height;
 	int32_t local_x, local_y;
 	int32_t old_text_width;
@@ -277,7 +278,7 @@ eqml_ui_frame(struct eqml_ui *ui)
 		} else if (n->kind == EQML_NODE_IMAGE) {
 			item->kind = EQML_IMAGE;
 			item->data.image = (struct eqml_image){ .x = p->x,
-			    .y = p->y, .bitmap = n->bitmap };
+			    .y = p->y, .bitmap = p->bitmap };
 		} else {
 			item->kind = EQML_TEXT;
 			item->data.text = (struct eqml_text){ .binding = -1,
@@ -392,6 +393,7 @@ eqml_ui_create(const struct eqml_scene *scene,
 			errno = EINVAL;
 			goto fail;
 		}
+		ui->places[i].bitmap = n->bitmap;
 		ui->places[i].hidden = n->hidden;
 		ui->places[i].local_x = n->x;
 		ui->places[i].local_y = n->y;
@@ -532,6 +534,29 @@ eqml_ui_visible(const struct eqml_ui *ui, size_t node)
 		return 0;
 	}
 	return ui->places[node].visible;
+}
+
+int
+eqml_ui_set_bitmap(struct eqml_ui *ui, size_t node, const struct eqml_bitmap *bitmap)
+{
+	const struct eqml_node *n;
+	struct placement *p;
+
+	if (ui == NULL || node >= ui->program->node_count)
+		return invalid();
+	n = &ui->program->nodes[node];
+	if (n->kind != EQML_NODE_IMAGE)
+		return invalid();
+	if (bitmap == NULL)
+		bitmap = n->bitmap;
+	if (!eqml_bitmap_valid(bitmap) || bitmap->width != n->width ||
+	    bitmap->height != n->height)
+		return invalid();
+	p = &ui->places[node];
+	p->bitmap = bitmap;
+	if (p->transparency != 255)
+		include_damage(ui, p->x, p->y, n->width, n->height);
+	return 0;
 }
 
 int

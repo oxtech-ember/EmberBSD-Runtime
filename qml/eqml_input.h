@@ -105,6 +105,10 @@ int eqml_ui_timeout(const struct eqml_ui *, uint64_t);
 int32_t eqml_ui_coordinate(const struct eqml_ui *, size_t, enum eqml_axis);
 int eqml_ui_set_coordinate(struct eqml_ui *, size_t, enum eqml_axis, int32_t,
     uint32_t);
+/* Replace one image at its compiled dimensions, or restore it with NULL.
+ * The UI borrows the descriptor and arrays until replacement or destruction.
+ * Call again after updating pixels in place to invalidate their visible area. */
+int eqml_ui_set_bitmap(struct eqml_ui *, size_t, const struct eqml_bitmap *);
 /* Visibility is inherited. Setting a node changes only its explicit value. */
 int eqml_ui_visible(const struct eqml_ui *, size_t);
 int eqml_ui_set_visible(struct eqml_ui *, size_t, int);
