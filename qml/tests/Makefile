@@ -9,9 +9,10 @@ ROOT=..
 
 .PHONY: test clean
 
-test: ${OUT}/test_eqml ${OUT}/test_input
+test: ${OUT}/test_eqml ${OUT}/test_input ${OUT}/test_animation
 	${OUT}/test_eqml
 	${OUT}/test_input
+	${OUT}/test_animation
 
 ${OUT}/test_eqml: test_eqml.c ${ROOT}/eqml.c ${ROOT}/eqml.h ${ROOT}/eqml_font8x8.h
 	mkdir -p ${OUT}
@@ -21,5 +22,9 @@ ${OUT}/test_input: test_input.c ${ROOT}/eqml_input.c ${ROOT}/eqml_input.h ${ROOT
 	mkdir -p ${OUT}
 	${CC} ${CFLAGS} ${WARNINGS} -I${ROOT} ${ROOT}/eqml_input.c test_input.c -o $@
 
+${OUT}/test_animation: test_animation.c ${ROOT}/eqml_input.c ${ROOT}/eqml_input.h ${ROOT}/eqml.h
+	mkdir -p ${OUT}
+	${CC} ${CFLAGS} ${WARNINGS} -I${ROOT} ${ROOT}/eqml_input.c test_animation.c -o $@
+
 clean:
-	rm -f ${OUT}/test_eqml ${OUT}/test_input
+	rm -f ${OUT}/test_eqml ${OUT}/test_input ${OUT}/test_animation

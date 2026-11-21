@@ -100,6 +100,36 @@ framebuffer. The text uses a compact bitmap cell and the SDK translates
 the supported event expressions to C at build time. This profile handles
 one primary contact, fixed viewport dimensions and untransformed items.
 
+### Animated coordinates
+
+For a compiled linear `Behavior on x` or `Behavior on y`, a handler reads
+the current local integer position with `eqml_ui_coordinate()`. It writes
+the target and the declared duration in milliseconds with
+`eqml_ui_set_coordinate()`. A duration of zero applies the value immediately.
+An anchor controls its own axis, and a write to that axis fails with `EINVAL`.
+An invalid read returns zero and sets `errno` to `EINVAL`.
+
+Each UI instance owns at most one animation per node and axis. A new target
+starts at the current position. Repeating the target preserves the finish
+time. A write of the current position stops motion. Starting an animation
+allocates one record. Completion, cancellation of that coordinate or UI
+destruction frees it. Reading, presenting and sampling need no new storage.
+
+The event loop calls `eqml_ui_tick(ui, now_ms)` to sample elapsed time.
+Pointer dispatch also samples before hit testing. For a write made outside
+a handler, first pass the current monotonic time to `eqml_ui_tick()`.
+Sampling interpolates each coordinate to the nearest integer, rounds a tie
+away from zero and sets the exact target at the end. The same placements
+drive the renderer, coordinate mapping and pointer hit testing.
+Moving a hover-enabled area under or away from a stationary pointer
+delivers the corresponding enter or exit signal. Touch release and
+cancellation end the pointer position used for hover. An immediate coordinate
+write with a live pointer schedules this check for the next tick.
+`eqml_ui_timeout()` returns the time to the earliest animation sample or
+press-and-hold deadline. The animation requests samples at 16 ms intervals
+and at the exact final deadline. A late sample advances directly to the
+current time. The timeout returns to -1 once all pending work completes.
+
 ## wsdisplay backend
 
 `eqml_wsdisplay_open()` validates the device's reported geometry, depth,

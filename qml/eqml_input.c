@@ -10,11 +10,20 @@
 #define DOUBLE_MS 400U
 #define DRAG_DISTANCE 10
 #define NODE_LIMIT 256
+#define FRAME_MS 16U
 
 struct placement {
 	int32_t x, y, width, height;
 	int32_t local_x, local_y;
 	uint8_t transparency, visiting, ready;
+};
+
+struct animation {
+	struct animation *next;
+	int32_t *coordinate;
+	int32_t from, to;
+	uint32_t duration;
+	uint64_t start;
 };
 
 struct eqml_ui {
@@ -30,6 +39,9 @@ struct eqml_ui {
 	uint64_t down_time, last_time;
 	struct eqml_point down, pointer, last_point, drag_origin, drag_start;
 	unsigned int notifying;
+	uint8_t pointer_present, recheck_pointer;
+	uint64_t now;
+	struct animation *animations;
 };
 
 static int
@@ -260,15 +272,117 @@ fail:
 	return NULL;
 }
 
+static void
+remove_animation(struct animation **link)
+{
+	struct animation *a = *link;
+
+	*link = a->next;
+	free(a);
+}
+
 void
 eqml_ui_destroy(struct eqml_ui *ui)
 {
 	if (ui == NULL)
 		return;
+	while (ui->animations != NULL)
+		remove_animation(&ui->animations);
 	free(ui->places);
 	free(ui->items);
 	free(ui->strings);
 	free(ui);
+}
+
+static int
+valid_coordinate(const struct eqml_ui *ui, size_t node, enum eqml_axis axis)
+{
+	return ui != NULL && node < ui->program->node_count &&
+	    (axis == EQML_AXIS_X || axis == EQML_AXIS_Y);
+}
+
+static int
+anchored(const struct eqml_node *n, enum eqml_axis axis)
+{
+	return axis == EQML_AXIS_X ? (n->anchors & EQML_HCENTER) != 0 :
+	    (n->anchors & EQML_VCENTER) != 0 || n->bottom_edge != EQML_EDGE_NONE;
+}
+
+int32_t
+eqml_ui_coordinate(const struct eqml_ui *ui, size_t node, enum eqml_axis axis)
+{
+	const struct eqml_node *n;
+	const struct placement *p, *parent;
+
+	if (!valid_coordinate(ui, node, axis)) {
+		errno = EINVAL;
+		return 0;
+	}
+	n = &ui->program->nodes[node];
+	p = &ui->places[node];
+	if (!anchored(n, axis))
+		return axis == EQML_AXIS_X ? p->local_x : p->local_y;
+	parent = n->parent >= 0 ? &ui->places[n->parent] : NULL;
+	if (axis == EQML_AXIS_X)
+		return narrow((int64_t)p->x - (parent != NULL ? parent->x : 0));
+	return narrow((int64_t)p->y - (parent != NULL ? parent->y : 0));
+}
+
+static struct animation **
+animation_for(struct eqml_ui *ui, const int32_t *coordinate)
+{
+	struct animation **link = &ui->animations;
+
+	while (*link != NULL && (*link)->coordinate != coordinate)
+		link = &(*link)->next;
+	return link;
+}
+
+static void
+stop_animation(struct eqml_ui *ui, const int32_t *coordinate)
+{
+	struct animation **link = animation_for(ui, coordinate);
+
+	if (*link != NULL)
+		remove_animation(link);
+}
+
+int
+eqml_ui_set_coordinate(struct eqml_ui *ui, size_t node, enum eqml_axis axis,
+    int32_t target, uint32_t duration)
+{
+	struct animation **link, *a;
+	int32_t *coordinate;
+
+	if (!valid_coordinate(ui, node, axis) || anchored(&ui->program->nodes[node], axis))
+		return invalid();
+	coordinate = axis == EQML_AXIS_X ? &ui->places[node].local_x : &ui->places[node].local_y;
+	link = animation_for(ui, coordinate);
+	a = *link;
+	if (a != NULL && duration != 0 && a->to == target)
+		return 0;
+	if (duration == 0 || target == *coordinate) {
+		if (a != NULL)
+			remove_animation(link);
+		if (target == *coordinate)
+			return 0;
+		*coordinate = target;
+		ui->recheck_pointer = ui->pointer_present;
+		return eqml_ui_frame(ui) == NULL ? -1 : 0;
+	}
+	if (a == NULL) {
+		a = malloc(sizeof(*a));
+		if (a == NULL)
+			return -1;
+		*link = a;
+		a->next = NULL;
+		a->coordinate = coordinate;
+	}
+	a->from = *coordinate;
+	a->to = target;
+	a->start = ui->now;
+	a->duration = duration;
+	return 0;
 }
 
 int
@@ -406,11 +520,11 @@ far_apart(struct eqml_point a, struct eqml_point b)
 	    llabs((int64_t)a.y - b.y) > DRAG_DISTANCE;
 }
 
-int
-eqml_ui_timeout(const struct eqml_ui *ui, uint64_t now)
+static int
+hold_timeout(const struct eqml_ui *ui, uint64_t now)
 {
 	uint64_t elapsed;
-	if (ui == NULL || ui->grab < 0 || ui->hold_done || ui->doubled ||
+	if (ui->grab < 0 || ui->hold_done || ui->doubled ||
 	    !(ui->program->nodes[ui->grab].signals & (1U << EQML_PRESS_AND_HOLD)))
 		return -1;
 	elapsed = now >= ui->down_time ? now - ui->down_time : 0;
@@ -418,15 +532,111 @@ eqml_ui_timeout(const struct eqml_ui *ui, uint64_t now)
 }
 
 int
+eqml_ui_timeout(const struct eqml_ui *ui, uint64_t now)
+{
+	const struct animation *a;
+	uint64_t sampled, next, elapsed;
+	int timeout, delay;
+
+	if (ui == NULL)
+		return -1;
+	if (ui->recheck_pointer)
+		return 0;
+	if (now < ui->now)
+		now = ui->now;
+	timeout = hold_timeout(ui, now);
+	for (a = ui->animations; a != NULL; a = a->next) {
+		sampled = ui->now - a->start;
+		next = sampled - sampled % FRAME_MS + FRAME_MS;
+		if (next > a->duration)
+			next = a->duration;
+		elapsed = now - a->start;
+		delay = elapsed < next ? (int)(next - elapsed) : 0;
+		if (timeout < 0 || delay < timeout)
+			timeout = delay;
+	}
+	return timeout;
+}
+
+static int
+advance_animations(struct eqml_ui *ui)
+{
+	struct animation **link = &ui->animations, *a;
+	int changed = 0;
+
+	while ((a = *link) != NULL) {
+		uint64_t elapsed = ui->now - a->start;
+		int32_t value;
+
+		if (elapsed >= a->duration) {
+			value = a->to;
+		} else {
+			int64_t t = (int64_t)elapsed;
+			int64_t sum = (a->duration - t) * a->from + t * a->to;
+			int64_t half = a->duration / 2U;
+
+			/* The weighted sum and rounding fit int64_t for all int32
+			 * coordinates and uint32 durations. */
+			value = (int32_t)((sum + (sum < 0 ? -half : half)) / a->duration);
+		}
+		if (value != *a->coordinate) {
+			*a->coordinate = value;
+			changed = 1;
+		}
+		if (elapsed >= a->duration)
+			remove_animation(link);
+		else
+			link = &a->next;
+	}
+	if (!changed)
+		return 0;
+	if (eqml_ui_frame(ui) == NULL)
+		return -1;
+	return 1;
+}
+
+/* Geometry can move beneath a stationary pointer between device events. */
+static int
+update_pointer(struct eqml_ui *ui)
+{
+	if (ui->grab >= 0) {
+		int inside = contains(&ui->places[ui->grab], ui->pointer);
+
+		if (inside != ui->inside) {
+			ui->inside = inside;
+			return hover(ui, inside ? ui->grab : -1);
+		}
+	} else if (ui->pointer_present)
+		return hover(ui, hit(ui, 0));
+	return 0;
+}
+
+int
 eqml_ui_tick(struct eqml_ui *ui, uint64_t now)
 {
+	int changed;
+
 	if (ui == NULL)
 		return invalid();
-	if (eqml_ui_timeout(ui, now) != 0)
-		return 0;
+	if (now > ui->now)
+		ui->now = now;
+	changed = advance_animations(ui);
+	if (changed == -1)
+		return -1;
+	if (changed || ui->recheck_pointer) {
+		int pointer;
+
+		ui->recheck_pointer = 0;
+		pointer = update_pointer(ui);
+		if (pointer == -1)
+			return -1;
+		changed |= pointer;
+	}
+	if (hold_timeout(ui, ui->now) != 0)
+		return changed;
 	ui->hold_done = 1;
 	if (!ui->inside || ui->dragging)
-		return 0;
+		return changed;
 	ui->held = 1;
 	return emit(ui, ui->grab, EQML_PRESS_AND_HOLD, 0) == -1 ? -1 : 1;
 }
@@ -472,6 +682,10 @@ move(struct eqml_ui *ui)
 			ui->dragging = 1;
 		}
 		if (changed) {
+			if (area->drag_axes & 1)
+				stop_animation(ui, &p->local_x);
+			if (area->drag_axes & 2)
+				stop_animation(ui, &p->local_y);
 			p->local_x = x;
 			p->local_y = y;
 			if (eqml_ui_frame(ui) == NULL)
@@ -560,21 +774,28 @@ eqml_ui_pointer(struct eqml_ui *ui, enum eqml_phase phase, int32_t x,
 	if (phase == EQML_CANCEL) {
 		changed = ui->grab >= 0 || ui->hover >= 0;
 		ui->grab = ui->last_click = -1;
+		ui->pointer_present = ui->recheck_pointer = 0;
 		ui->inside = ui->held = 0;
 		ui->button = 0;
-		return hover(ui, -1) == -1 ? -1 : changed;
+		timer = eqml_ui_tick(ui, now);
+		if (timer == -1 || hover(ui, -1) == -1)
+			return -1;
+		return changed || timer;
 	}
 	timer = eqml_ui_tick(ui, now);
 	if (timer == -1)
 		return -1;
 	ui->pointer = (struct eqml_point){ x, y };
 	ui->modifiers = modifiers;
+	ui->pointer_present = phase != EQML_UP || (ui->grab >= 0 && button != ui->button);
 	switch (phase) {
 	case EQML_DOWN:
-		changed = press(ui, button, now);
+		changed = press(ui, button, ui->now);
 		break;
 	case EQML_UP:
 		changed = release(ui, button);
+		if (changed == 0 && !ui->pointer_present)
+			changed = hover(ui, -1);
 		break;
 	default:
 		changed = move(ui);

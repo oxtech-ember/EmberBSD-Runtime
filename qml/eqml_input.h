@@ -42,6 +42,7 @@ enum eqml_signal {
 #define EQML_MODIFIER_SHIFT (1U << 25)
 
 enum eqml_phase { EQML_DOWN, EQML_MOVE, EQML_UP, EQML_CANCEL };
+enum eqml_axis { EQML_AXIS_X, EQML_AXIS_Y };
 enum eqml_edge { EQML_EDGE_NONE, EQML_EDGE_TOP, EQML_EDGE_BOTTOM };
 enum eqml_node_kind { EQML_NODE_RECT, EQML_NODE_TEXT, EQML_NODE_AREA };
 
@@ -95,6 +96,9 @@ int eqml_ui_pointer(struct eqml_ui *, enum eqml_phase, int32_t, int32_t,
     uint32_t, uint32_t, uint64_t);
 int eqml_ui_tick(struct eqml_ui *, uint64_t);
 int eqml_ui_timeout(const struct eqml_ui *, uint64_t);
+int32_t eqml_ui_coordinate(const struct eqml_ui *, size_t, enum eqml_axis);
+int eqml_ui_set_coordinate(struct eqml_ui *, size_t, enum eqml_axis, int32_t,
+    uint32_t);
 int eqml_ui_contains_press(const struct eqml_ui *, size_t);
 int eqml_ui_pressed(const struct eqml_ui *, size_t);
 const char *eqml_ui_string(const struct eqml_ui *, size_t);
