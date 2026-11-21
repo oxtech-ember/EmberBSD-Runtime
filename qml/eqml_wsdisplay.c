@@ -88,34 +88,48 @@ fail:
 	return -1;
 }
 
-static int
-present_row(void *cookie, uint16_t y, const uint16_t *pixels,
-    uint16_t width)
-{
-	struct eqml_wsdisplay *display = cookie;
+struct viewport {
+	struct eqml_wsdisplay *display;
+	uint16_t x, y;
+};
 
-	if (display->framebuffer == NULL || y >= display->height ||
-	    width != display->width) {
+static int
+present_row(void *cookie, uint16_t y, const uint16_t *pixels, uint16_t width)
+{
+	const struct viewport *v = cookie;
+	struct eqml_wsdisplay *d = v->display;
+	uint8_t *row = d->framebuffer + (size_t)(y + v->y) * d->stride;
+
+	memcpy(row + (size_t)v->x * sizeof(*pixels), pixels, (size_t)width * sizeof(*pixels));
+	return 0;
+}
+
+int
+eqml_wsdisplay_present_at(struct eqml_wsdisplay *display,
+    const struct eqml_scene *scene, const int32_t *values, uint16_t x, uint16_t y,
+    uint16_t *line, size_t line_pixels)
+{
+	struct viewport viewport = { display, x, y };
+	if (display == NULL || display->framebuffer == NULL || scene == NULL ||
+	    x > display->width || scene->width > display->width - x ||
+	    y > display->height || scene->height > display->height - y) {
 		errno = EINVAL;
 		return -1;
 	}
-	memcpy(display->framebuffer + (size_t)y * display->stride, pixels,
-	    (size_t)width * sizeof(*pixels));
-	return 0;
+	return eqml_render(scene, values, line, line_pixels, present_row, &viewport);
 }
 
 int
 eqml_wsdisplay_present(struct eqml_wsdisplay *display,
     const struct eqml_scene *scene, const int32_t *values, uint16_t *line,
-	size_t line_pixels)
+    size_t line_pixels)
 {
-	if (display == NULL || display->framebuffer == NULL ||
-	    scene == NULL || scene->width != display->width ||
+	if (display == NULL || scene == NULL || scene->width != display->width ||
 	    scene->height != display->height) {
 		errno = EINVAL;
 		return -1;
 	}
-	return eqml_render(scene, values, line, line_pixels, present_row, display);
+	return eqml_wsdisplay_present_at(display, scene, values, 0, 0, line, line_pixels);
 }
 
 int

@@ -1,7 +1,7 @@
 # EmberBSD QML scene renderer
 
-This directory implements `EQML_SCENE_ABI 2`, the small target-side runtime
-contract for generated flat Rectangle/Text scenes. The SDK compiler owns QML
+This directory implements `EQML_SCENE_ABI 3`, the small target-side runtime
+contract for compiled static scenes and opt-in interactive scenes. The SDK compiler owns QML
 parsing and emits a C translation unit defining `const struct eqml_scene
 eqml_app` (or another selected public symbol). Runtime does not parse QML or
 allocate the application's model values.
@@ -50,10 +50,9 @@ displays `prefix`, the signed base-10 value, then `suffix`. `INT32_MIN` is
 supported.
 
 The renderer supports one-line printable ASCII text (bytes 0x20 through 0x7e).
-Each literal part (`prefix` or `suffix`) is limited to 4096 bytes. It provides
-no alpha blending and uses a solid scene background. Items paint in array
+Each literal part (`prefix` or `suffix`) is limited to 4096 bytes. Per-item transparency blends the source into the RGB565 scanline. The scene background is solid. Items paint in array
 order, so later items cover earlier ones. Pixels outside the scene are clipped.
-There is no parser, scene graph, timer, input system or implicit heap allocation.
+The static rendering path requires only caller-owned scratch space.
 
 Text `pixel_size` is the square glyph height and width, from 7 through 64
 pixels. The 8×8 source bitmap is scaled with center-sampled nearest-neighbour
@@ -74,13 +73,41 @@ set. The renderer uses a caller-owned line buffer and fixed-size per-text
 formatting state. It formats bound text only for rows intersecting that item
 and does not allocate a framebuffer or heap memory.
 
+## Interactive scenes
+
+The compiler emits parent-first node descriptors and C callbacks for the
+supported QML handlers. Link `eqml_input.c` when the scene has a `program`.
+`eqml_ui_create()` allocates one instance, its node placements, draw list and
+string slots. Nodes and strings are bounded to 256 each. Each mutable slot
+holds up to 255 printable ASCII bytes. Destroy the instance with
+`eqml_ui_destroy()`. It owns neither the input device nor the display.
+
+Feed single-contact press, move, release and cancellation to `eqml_ui_pointer()`
+in viewport pixels. Use a single monotonic clock in milliseconds for that
+operation, `eqml_ui_timeout()` and `eqml_ui_tick()`. A timeout of -1 means no
+timer is pending. A pointer or tick result of 1 requests redraw, 0 leaves
+the frame as is, and -1 reports an error through `errno`. The single-contact
+profile ends hover on lift. It supports bounded, smoothed drag, a 10-pixel
+motion threshold, double tap within 400 ms, and an 800-ms hold. The program
+selects which handlers receive those gestures. Map physical screen coordinates
+to the viewport before dispatch, including while dragging off its edge.
+
+`eqml_ui_frame()` resolves anchors and text properties and returns an
+instance-owned draw list for `eqml_render(frame, NULL, ...)`. Consume it
+before the next update. The RGB565 renderer is shared with static scenes.
+The input instance stores geometry and labels; it allocates no pixel
+framebuffer. The text uses a compact bitmap cell and the SDK translates
+the supported event expressions to C at build time. This profile handles
+one primary contact, fixed viewport dimensions and untransformed items.
+
 ## wsdisplay backend
 
 `eqml_wsdisplay_open()` validates the device's reported geometry, depth,
 RGB565 channel masks, stride and framebuffer size before changing the display
 to `WSDISPLAYIO_MODE_DUMBFB`. Expected dimensions may be zero to accept the
 reported size. `eqml_wsdisplay_present()` renders directly into the mapped
-framebuffer one row at a time. `eqml_wsdisplay_close()` unmaps, restores the
+framebuffer one row at a time. `eqml_wsdisplay_present_at()` also accepts a smaller
+scene at a caller-selected position and preserves pixels outside that viewport. `eqml_wsdisplay_close()` unmaps, restores the
 previous display mode and closes the device. The backend is specific to the
 EmberBSD/NetBSD wsdisplay ABI; the portable renderer itself uses no OS APIs.
 

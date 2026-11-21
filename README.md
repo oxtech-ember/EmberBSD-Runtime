@@ -23,9 +23,9 @@ hardware support; Ports owns adaptations to external dependencies.
 boundaries. It does not provide an installer, stable general Device API or
 validated Wasm environment. There is no Runtime installation command yet.
 
-The new `qml/` directory is an opt-in, experimental C renderer for the flat
-Rectangle/Text scene ABI produced by the EmberBSD SDK QML compiler. It uses a
-caller-owned RGB565 scanline, supports mutable integer bindings and a NetBSD
+The new `qml/` directory is an opt-in, experimental C renderer for the embedded
+QML scene ABI produced by the EmberBSD SDK QML compiler. It uses a
+caller-owned RGB565 scanline, supports integer bindings, optional pointer-event dispatch and a NetBSD
 wsdisplay dumb-framebuffer backend, and does not depend on Qt or LVGL. This
 small renderer is a concrete implementation under development; it does not
 make the broader Runtime APIs stable or imply general QML compatibility.

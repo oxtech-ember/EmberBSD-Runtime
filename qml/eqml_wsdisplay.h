@@ -29,6 +29,11 @@ int eqml_wsdisplay_present(struct eqml_wsdisplay *,
 	const struct eqml_scene *, const int32_t *values, uint16_t *line,
 	size_t line_pixels);
 
+/* Present inside a rectangular viewport. Pixels outside it are preserved. */
+int eqml_wsdisplay_present_at(struct eqml_wsdisplay *, const struct eqml_scene *,
+	const int32_t *values, uint16_t x, uint16_t y, uint16_t *line,
+	size_t line_pixels);
+
 /* Restores the previous wsdisplay mode, unmaps and closes. */
 int eqml_wsdisplay_close(struct eqml_wsdisplay *);
 

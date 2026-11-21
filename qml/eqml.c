@@ -125,7 +125,7 @@ validate_scene(const struct eqml_scene *scene, const int32_t *values,
 
 	errno = EINVAL;
 	if (scene == NULL || line == NULL || write_row == NULL ||
-	    scene->width == 0 || scene->height == 0 ||
+	    scene->width == 0 || scene->height == 0 || scene->program != NULL ||
 	    line_pixels < scene->width ||
 	    (scene->item_count != 0 && scene->items == NULL) ||
 	    (scene->property_count != 0 &&
@@ -145,7 +145,7 @@ validate_scene(const struct eqml_scene *scene, const int32_t *values,
 			return -1;
 		}
 		text = &item->data.text;
-		if (text->pixel_size < 7 || text->pixel_size > 64 ||
+		if (text->pixel_size < 7 || text->pixel_size > 64 || text->glyph_width > 64 ||
 		    (text->anchors & ~(EQML_HCENTER | EQML_VCENTER)) != 0) {
 			errno = EINVAL;
 			return -1;
@@ -157,13 +157,14 @@ validate_scene(const struct eqml_scene *scene, const int32_t *values,
 }
 
 static int64_t
-text_width(const struct text_run *run, unsigned int pixel_size)
+text_width(const struct text_run *run, const struct eqml_text *text)
 {
-	int64_t spacing = (pixel_size + 7) / 8;
+	int64_t cell = text->glyph_width ? text->glyph_width : text->pixel_size;
+	int64_t spacing = (cell + 7) / 8;
 
 	if (run->length == 0)
 		return 0;
-	return (int64_t)run->length * (pixel_size + spacing) - spacing;
+	return (int64_t)run->length * (cell + spacing) - spacing;
 }
 
 static int64_t
@@ -182,25 +183,39 @@ text_left(const struct eqml_text *text, const struct text_run *run)
 	int64_t left = text->x;
 
 	if ((text->anchors & EQML_HCENTER) != 0)
-		left += ((int64_t)text->parent_width - text_width(run,
-		    text->pixel_size)) / 2;
+		left += ((int64_t)text->parent_width - text_width(run, text)) / 2;
 	return left;
+}
+
+static uint16_t
+blend565(uint16_t dst, uint16_t src, unsigned int transparency)
+{
+	unsigned int a = 255 - transparency;
+	unsigned int r, g, b;
+
+	if (transparency == 0)
+		return src;
+	r = ((src >> 11) * a + (dst >> 11) * transparency + 127) / 255;
+	g = (((src >> 5) & 63U) * a + ((dst >> 5) & 63U) * transparency + 127) / 255;
+	b = ((src & 31U) * a + (dst & 31U) * transparency + 127) / 255;
+	return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
 static void
 draw_text_row(const struct eqml_scene *scene, const struct eqml_text *text,
 	const struct text_run *run, int64_t left, int64_t top, uint16_t y,
-	uint16_t *line)
+	uint16_t *line, uint8_t transparency)
 {
 	int64_t local_y = (int64_t)y - top;
 	int64_t advance, spacing;
 	size_t character;
 	unsigned int pixel_size = text->pixel_size;
+	unsigned int cell = text->glyph_width ? text->glyph_width : pixel_size;
 
 	if (local_y < 0 || local_y >= pixel_size || run->length == 0)
 		return;
-	spacing = (pixel_size + 7) / 8;
-	advance = pixel_size + spacing;
+	spacing = (cell + 7) / 8;
+	advance = cell + spacing;
 	for (character = 0; character < run->length; character++) {
 		uint8_t glyph = run_character(run, character);
 		unsigned int x, source_y, source_y_end;
@@ -213,17 +228,17 @@ draw_text_row(const struct eqml_scene *scene, const struct eqml_text *text,
 			    ((int64_t)pixel_size * 2));
 			source_y_end = source_y + 1;
 		}
-		for (x = 0; x < pixel_size; x++) {
+		for (x = 0; x < cell; x++) {
 			int64_t target_x = left +
 			    (int64_t)character * advance + x;
 			unsigned int source_x, source_y_index, source_x_end;
 			int set = 0;
 
-			if (pixel_size == 7) {
-				source_x = x * 8 / 7;
-				source_x_end = (x + 1) * 8 / 7;
+			if (cell < 8) {
+				source_x = x * 8 / cell;
+				source_x_end = (x + 1) * 8 / cell;
 			} else {
-				source_x = (x * 2 + 1) * 8 / (pixel_size * 2);
+				source_x = (x * 2 + 1) * 8 / (cell * 2);
 				source_x_end = source_x + 1;
 			}
 			for (source_y_index = source_y;
@@ -237,7 +252,8 @@ draw_text_row(const struct eqml_scene *scene, const struct eqml_text *text,
 						set = 1;
 			}
 			if (set && target_x >= 0 && target_x < scene->width)
-				line[target_x] = text->color;
+				line[target_x] = blend565(line[target_x],
+				    text->color, transparency);
 		}
 	}
 }
@@ -275,7 +291,8 @@ eqml_render(const struct eqml_scene *scene, const int32_t *values,
 				if (right > scene->width)
 					right = scene->width;
 				for (x = left; x < right; x++)
-					line[x] = rect->color;
+					line[x] = blend565(line[x], rect->color,
+					    item->transparency);
 				continue;
 			}
 			if (item->kind == EQML_TEXT) {
@@ -290,7 +307,7 @@ eqml_render(const struct eqml_scene *scene, const int32_t *values,
 				if (prepare_run(scene, text, values, &run) == -1)
 					return -1;
 				draw_text_row(scene, text, &run,
-				    text_left(text, &run), top, y, line);
+				    text_left(text, &run), top, y, line, item->transparency);
 			}
 		}
 		errno = 0;

@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define EQML_SCENE_ABI 2
+#define EQML_SCENE_ABI 3
 
 enum {
 	EQML_HCENTER = 1,
@@ -30,6 +30,7 @@ struct eqml_text {
 	uint16_t color;
 	uint8_t pixel_size;
 	uint8_t anchors;
+	uint8_t glyph_width; /* zero selects the square bitmap cell */
 };
 
 enum eqml_item_kind {
@@ -47,11 +48,14 @@ struct eqml_rect {
 
 struct eqml_item {
 	enum eqml_item_kind kind;
+	uint8_t transparency; /* 0 = opaque, 255 = invisible */
 	union {
 		struct eqml_rect rect;
 		struct eqml_text text;
 	} data;
 };
+
+struct eqml_program;
 
 struct eqml_scene {
 	uint16_t width;
@@ -61,6 +65,7 @@ struct eqml_scene {
 	size_t item_count;
 	const struct eqml_int *properties;
 	size_t property_count;
+	const struct eqml_program *program;
 };
 
 /* A row callback borrows pixels until it returns. Return 0 or -1 and set
